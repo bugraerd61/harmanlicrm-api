@@ -23,10 +23,10 @@ async function initDB() {
     'email VARCHAR(255) UNIQUE NOT NULL,' +
     'password VARCHAR(255) NOT NULL,' +
     'name VARCHAR(255),' +
-    'role VARCHAR(50) DEFAULT \'user\',' +
-    'active BOOLEAN DEFAULT FALSE,' +
     'created_at TIMESTAMP DEFAULT NOW())'
   );
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT \'user\'');
   await pool.query(
     'CREATE TABLE IF NOT EXISTS excel_uploads (' +
     'id SERIAL PRIMARY KEY,' +
@@ -185,5 +185,8 @@ var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   initDB().then(function() {
     console.log('Server ' + PORT + ' portunda calisiyor');
+  }).catch(function(err) {
+    console.error('DB hatasi:', err.message);
+    process.exit(1);
   });
 });
