@@ -3,10 +3,11 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({limit:'50mb'}));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -14,6 +15,7 @@ const pool = new Pool({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'harmanli-secret-key';
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50*1024*1024 } });
 
 async function initDB() {
   await pool.query(
@@ -22,29 +24,20 @@ async function initDB() {
     'email VARCHAR(255) UNIQUE NOT NULL,' +
     'password VARCHAR(255) NOT NULL,' +
     'name VARCHAR(255),' +
+    'role VARCHAR(50) DEFAULT \'user\',' +
     'created_at TIMESTAMP DEFAULT NOW())'
   );
   await pool.query(
-    'CREATE TABLE IF NOT EXISTS customers (' +
+    'CREATE TABLE IF NOT EXISTS excel_uploads (' +
     'id SERIAL PRIMARY KEY,' +
-    'name VARCHAR(255) NOT NULL,' +
-    'company VARCHAR(255),' +
-    'email VARCHAR(255),' +
-    'phone VARCHAR(50),' +
-    'city VARCHAR(100),' +
-    'sector VARCHAR(100),' +
-    'notes TEXT,' +
-    'created_at TIMESTAMP DEFAULT NOW())'
-  );
-  await pool.query(
-    'CREATE TABLE IF NOT EXISTS contacts (' +
-    'id SERIAL PRIMARY KEY,' +
-    'customer_id INTEGER REFERENCES customers(id),' +
-    'date TIMESTAMP DEFAULT NOW(),' +
-    'type VARCHAR(50),' +
-    'notes TEXT,' +
-    'next_action TEXT,' +
-    'next_date DATE)'
+    'etiket VARCHAR(255),' +
+    'tarih TIMESTAMP DEFAULT NOW(),' +
+    'uploaded_by INTEGER REFERENCES users(id),' +
+    'fat_data JSONB,' +
+    'akt_data JSONB,' +
+    'sat_data JSONB,' +
+    'tek_data JSONB,' +
+    'meta JSONB)'
   );
   console.log('DB ready');
 }
@@ -70,7 +63,7 @@ app.post('/api/register', function(req, res) {
   var name = req.body.name;
   bcrypt.hash(password, 10).then(function(hash) {
     return pool.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name',
+      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, role',
       [email, hash, name]
     );
   }).then(function(result) {
@@ -89,68 +82,75 @@ app.post('/api/login', function(req, res) {
     return bcrypt.compare(password, result.rows[0].password).then(function(valid) {
       if (!valid) return res.status(400).json({ error: 'Hatali sifre' });
       var token = jwt.sign({ id: result.rows[0].id }, JWT_SECRET);
-      res.json({ token: token, user: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name } });
+      res.json({ token: token, user: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name, role: result.rows[0].role } });
     });
   }).catch(function(err) {
     res.status(400).json({ error: err.message });
   });
 });
 
-app.get('/api/customers', auth, function(req, res) {
-  pool.query('SELECT * FROM customers ORDER BY name').then(function(result) {
+// Excel upload — JSON olarak gönderilir
+app.post('/api/uploads', auth, function(req, res) {
+  var etiket = req.body.etiket;
+  var fat = req.body.fat || [];
+  var akt = req.body.akt || [];
+  var sat = req.body.sat || [];
+  var tek = req.body.tek || [];
+  var meta = req.body.meta || {};
+  pool.query(
+    'INSERT INTO excel_uploads (etiket, uploaded_by, fat_data, akt_data, sat_data, tek_data, meta) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, etiket, tarih, meta',
+    [etiket, req.user.id, JSON.stringify(fat), JSON.stringify(akt), JSON.stringify(sat), JSON.stringify(tek), JSON.stringify(meta)]
+  ).then(function(result) {
+    res.json(result.rows[0]);
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Tüm upload listesi
+app.get('/api/uploads', auth, function(req, res) {
+  pool.query('SELECT id, etiket, tarih, uploaded_by, meta FROM excel_uploads ORDER BY tarih DESC').then(function(result) {
     res.json(result.rows);
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
 });
 
-app.post('/api/customers', auth, function(req, res) {
-  var b = req.body;
-  pool.query(
-    'INSERT INTO customers (name, company, email, phone, city, sector, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [b.name, b.company, b.email, b.phone, b.city, b.sector, b.notes]
-  ).then(function(result) {
-    res.json(result.rows[0]);
+// Tek upload verisi
+app.get('/api/uploads/:id', auth, function(req, res) {
+  pool.query('SELECT * FROM excel_uploads WHERE id=$1', [req.params.id]).then(function(result) {
+    if (!result.rows[0]) return res.status(404).json({ error: 'Bulunamadi' });
+    var row = result.rows[0];
+    res.json({
+      id: row.id,
+      etiket: row.etiket,
+      tarih: row.tarih,
+      meta: row.meta,
+      data: {
+        fat: row.fat_data || [],
+        akt: row.akt_data || [],
+        sat: row.sat_data || [],
+        tek: row.tek_data || []
+      }
+    });
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
 });
 
-app.put('/api/customers/:id', auth, function(req, res) {
-  var b = req.body;
-  pool.query(
-    'UPDATE customers SET name=$1, company=$2, email=$3, phone=$4, city=$5, sector=$6, notes=$7 WHERE id=$8 RETURNING *',
-    [b.name, b.company, b.email, b.phone, b.city, b.sector, b.notes, req.params.id]
-  ).then(function(result) {
-    res.json(result.rows[0]);
-  }).catch(function(err) {
-    res.status(500).json({ error: err.message });
-  });
-});
-
-app.delete('/api/customers/:id', auth, function(req, res) {
-  pool.query('DELETE FROM customers WHERE id=$1', [req.params.id]).then(function() {
+// Upload sil
+app.delete('/api/uploads/:id', auth, function(req, res) {
+  pool.query('DELETE FROM excel_uploads WHERE id=$1', [req.params.id]).then(function() {
     res.json({ success: true });
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
 });
 
-app.get('/api/customers/:id/contacts', auth, function(req, res) {
-  pool.query('SELECT * FROM contacts WHERE customer_id=$1 ORDER BY date DESC', [req.params.id]).then(function(result) {
+// Kullanıcı listesi
+app.get('/api/users', auth, function(req, res) {
+  pool.query('SELECT id, email, name, role, created_at FROM users ORDER BY created_at').then(function(result) {
     res.json(result.rows);
-  }).catch(function(err) {
-    res.status(500).json({ error: err.message });
-  });
-});
-
-app.post('/api/customers/:id/contacts', auth, function(req, res) {
-  var b = req.body;
-  pool.query(
-    'INSERT INTO contacts (customer_id, type, notes, next_action, next_date) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-    [req.params.id, b.type, b.notes, b.next_action, b.next_date]
-  ).then(function(result) {
-    res.json(result.rows[0]);
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
