@@ -181,6 +181,46 @@ app.delete('/api/uploads/:id', auth, function(req, res) {
   });
 });
 
+// AI proxy - CORS sorununu aşmak için backend üzerinden çağır
+app.post('/api/ai', auth, function(req, res) {
+  var prompt = req.body.prompt;
+  var apiKey = req.body.apiKey;
+  if(!prompt || !apiKey) return res.status(400).json({ error: 'Eksik parametre' });
+  var https = require('https');
+  var body = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 500,
+    messages: [{ role: 'user', content: prompt }]
+  });
+  var options = {
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Length': Buffer.byteLength(body)
+    }
+  };
+  var reqAI = https.request(options, function(resAI) {
+    var data = '';
+    resAI.on('data', function(chunk) { data += chunk; });
+    resAI.on('end', function() {
+      try {
+        res.json(JSON.parse(data));
+      } catch(e) {
+        res.status(500).json({ error: 'Parse hatasi' });
+      }
+    });
+  });
+  reqAI.on('error', function(e) {
+    res.status(500).json({ error: e.message });
+  });
+  reqAI.write(body);
+  reqAI.end();
+});
+
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   initDB().then(function() {
