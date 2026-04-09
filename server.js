@@ -3,7 +3,6 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const multer = require('multer');
 
 const app = express();
 app.use(cors());
@@ -15,7 +14,7 @@ const pool = new Pool({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'harmanli-secret-key';
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50*1024*1024 } });
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'bugra@harmanli.com';
 
 async function initDB() {
   await pool.query(
@@ -25,6 +24,7 @@ async function initDB() {
     'password VARCHAR(255) NOT NULL,' +
     'name VARCHAR(255),' +
     'role VARCHAR(50) DEFAULT \'user\',' +
+    'active BOOLEAN DEFAULT FALSE,' +
     'created_at TIMESTAMP DEFAULT NOW())'
   );
   await pool.query(
@@ -38,6 +38,11 @@ async function initDB() {
     'sat_data JSONB,' +
     'tek_data JSONB,' +
     'meta JSONB)'
+  );
+  // Admin kullaniciyi otomatik aktif et
+  await pool.query(
+    'UPDATE users SET active=TRUE, role=\'admin\' WHERE email=$1',
+    [ADMIN_EMAIL]
   );
   console.log('DB ready');
 }
@@ -53,6 +58,11 @@ function auth(req, res, next) {
   }
 }
 
+function adminOnly(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Yetkisiz' });
+  next();
+}
+
 app.get('/', function(req, res) {
   res.json({ status: 'HarmanliCRM API calisiyor' });
 });
@@ -61,13 +71,17 @@ app.post('/api/register', function(req, res) {
   var email = req.body.email;
   var password = req.body.password;
   var name = req.body.name;
+  var isAdmin = (email === ADMIN_EMAIL);
   bcrypt.hash(password, 10).then(function(hash) {
     return pool.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, role',
-      [email, hash, name]
+      'INSERT INTO users (email, password, name, active, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, active',
+      [email, hash, name, isAdmin, isAdmin ? 'admin' : 'user']
     );
   }).then(function(result) {
-    var token = jwt.sign({ id: result.rows[0].id }, JWT_SECRET);
+    if (!isAdmin) {
+      return res.json({ pending: true, message: 'Kaydınız alındı. Admin onayından sonra giriş yapabilirsiniz.' });
+    }
+    var token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, JWT_SECRET);
     res.json({ token: token, user: result.rows[0] });
   }).catch(function(err) {
     res.status(400).json({ error: err.message });
@@ -79,9 +93,10 @@ app.post('/api/login', function(req, res) {
   var password = req.body.password;
   pool.query('SELECT * FROM users WHERE email=$1', [email]).then(function(result) {
     if (!result.rows[0]) return res.status(400).json({ error: 'Kullanici bulunamadi' });
+    if (!result.rows[0].active) return res.status(403).json({ error: 'Hesabınız henüz onaylanmadı. Admin onayı bekleniyor.' });
     return bcrypt.compare(password, result.rows[0].password).then(function(valid) {
       if (!valid) return res.status(400).json({ error: 'Hatali sifre' });
-      var token = jwt.sign({ id: result.rows[0].id }, JWT_SECRET);
+      var token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, JWT_SECRET);
       res.json({ token: token, user: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name, role: result.rows[0].role } });
     });
   }).catch(function(err) {
@@ -89,7 +104,34 @@ app.post('/api/login', function(req, res) {
   });
 });
 
-// Excel upload — JSON olarak gönderilir
+// Admin: tüm kullanıcıları listele
+app.get('/api/users', auth, adminOnly, function(req, res) {
+  pool.query('SELECT id, email, name, role, active, created_at FROM users ORDER BY created_at').then(function(result) {
+    res.json(result.rows);
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin: kullanıcı onayla
+app.put('/api/users/:id/approve', auth, adminOnly, function(req, res) {
+  pool.query('UPDATE users SET active=TRUE WHERE id=$1 RETURNING id, email, name, active', [req.params.id]).then(function(result) {
+    res.json(result.rows[0]);
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin: kullanıcı sil
+app.delete('/api/users/:id', auth, adminOnly, function(req, res) {
+  pool.query('DELETE FROM users WHERE id=$1', [req.params.id]).then(function() {
+    res.json({ success: true });
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Excel upload
 app.post('/api/uploads', auth, function(req, res) {
   var etiket = req.body.etiket;
   var fat = req.body.fat || [];
@@ -107,7 +149,6 @@ app.post('/api/uploads', auth, function(req, res) {
   });
 });
 
-// Tüm upload listesi
 app.get('/api/uploads', auth, function(req, res) {
   pool.query('SELECT id, etiket, tarih, uploaded_by, meta FROM excel_uploads ORDER BY tarih DESC').then(function(result) {
     res.json(result.rows);
@@ -116,7 +157,6 @@ app.get('/api/uploads', auth, function(req, res) {
   });
 });
 
-// Tek upload verisi
 app.get('/api/uploads/:id', auth, function(req, res) {
   pool.query('SELECT * FROM excel_uploads WHERE id=$1', [req.params.id]).then(function(result) {
     if (!result.rows[0]) return res.status(404).json({ error: 'Bulunamadi' });
@@ -138,19 +178,9 @@ app.get('/api/uploads/:id', auth, function(req, res) {
   });
 });
 
-// Upload sil
 app.delete('/api/uploads/:id', auth, function(req, res) {
   pool.query('DELETE FROM excel_uploads WHERE id=$1', [req.params.id]).then(function() {
     res.json({ success: true });
-  }).catch(function(err) {
-    res.status(500).json({ error: err.message });
-  });
-});
-
-// Kullanıcı listesi
-app.get('/api/users', auth, function(req, res) {
-  pool.query('SELECT id, email, name, role, created_at FROM users ORDER BY created_at').then(function(result) {
-    res.json(result.rows);
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
