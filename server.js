@@ -14,7 +14,7 @@ const pool = new Pool({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'harmanli-secret-key';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'bugra@harmanli.com';
+const ADMIN_EMAIL = 'b.erdogan@harmanlikimya.com';
 
 async function initDB() {
   await pool.query(
@@ -39,7 +39,6 @@ async function initDB() {
     'tek_data JSONB,' +
     'meta JSONB)'
   );
-  // Admin kullaniciyi otomatik aktif et
   await pool.query(
     'UPDATE users SET active=TRUE, role=\'admin\' WHERE email=$1',
     [ADMIN_EMAIL]
@@ -104,7 +103,6 @@ app.post('/api/login', function(req, res) {
   });
 });
 
-// Admin: tüm kullanıcıları listele
 app.get('/api/users', auth, adminOnly, function(req, res) {
   pool.query('SELECT id, email, name, role, active, created_at FROM users ORDER BY created_at').then(function(result) {
     res.json(result.rows);
@@ -113,7 +111,6 @@ app.get('/api/users', auth, adminOnly, function(req, res) {
   });
 });
 
-// Admin: kullanıcı onayla
 app.put('/api/users/:id/approve', auth, adminOnly, function(req, res) {
   pool.query('UPDATE users SET active=TRUE WHERE id=$1 RETURNING id, email, name, active', [req.params.id]).then(function(result) {
     res.json(result.rows[0]);
@@ -122,7 +119,6 @@ app.put('/api/users/:id/approve', auth, adminOnly, function(req, res) {
   });
 });
 
-// Admin: kullanıcı sil
 app.delete('/api/users/:id', auth, adminOnly, function(req, res) {
   pool.query('DELETE FROM users WHERE id=$1', [req.params.id]).then(function() {
     res.json({ success: true });
@@ -131,7 +127,6 @@ app.delete('/api/users/:id', auth, adminOnly, function(req, res) {
   });
 });
 
-// Excel upload
 app.post('/api/uploads', auth, function(req, res) {
   var etiket = req.body.etiket;
   var fat = req.body.fat || [];
