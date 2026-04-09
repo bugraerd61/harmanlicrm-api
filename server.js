@@ -184,8 +184,9 @@ app.delete('/api/uploads/:id', auth, function(req, res) {
 // AI proxy - CORS sorununu aşmak için backend üzerinden çağır
 app.post('/api/ai', auth, function(req, res) {
   var prompt = req.body.prompt;
-  var apiKey = req.body.apiKey;
-  if(!prompt || !apiKey) return res.status(400).json({ error: 'Eksik parametre' });
+  var apiKey = process.env.ANTHROPIC_API_KEY;
+  if(!prompt) return res.status(400).json({ error: 'Eksik parametre' });
+  if(!apiKey) return res.status(500).json({ error: 'API key sunucuda tanımlı değil' });
   var https = require('https');
   var body = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
