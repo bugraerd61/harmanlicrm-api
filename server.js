@@ -3,10 +3,14 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 app.use(express.json({limit:'50mb'}));
+
+// Frontend'i serve et
+app.use(express.static(path.join(__dirname, 'public')));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -68,8 +72,13 @@ function adminOnly(req, res, next) {
   next();
 }
 
-app.get('/', function(req, res) {
+app.get('/api/status', function(req, res) {
   res.json({ status: 'HarmanliCRM API calisiyor' });
+});
+
+// Tüm diğer GET isteklerini index.html'e yönlendir (SPA routing)
+app.get('*', function(req, res) {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.post('/api/register', function(req, res) {
@@ -187,7 +196,6 @@ app.delete('/api/uploads/:id', auth, function(req, res) {
   });
 });
 
-// KV Store - tarayıcıdan veri kaydet/oku
 app.post('/api/kv/:key', auth, function(req, res) {
   var key = req.params.key;
   var value = typeof req.body.value === 'string' ? req.body.value : JSON.stringify(req.body.value);
@@ -210,7 +218,6 @@ app.get('/api/kv/:key', auth, function(req, res) {
   });
 });
 
-// AI proxy - CORS sorununu aşmak için backend üzerinden çağır
 app.post('/api/ai', auth, function(req, res) {
   var prompt = req.body.prompt;
   var apiKey = process.env.ANTHROPIC_API_KEY;
