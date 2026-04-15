@@ -3686,22 +3686,19 @@ function openScorePopup(ev,vkn){
   });
   h+='<tr style="border-top:2px solid #cbd5e1;background:#f1f5f9"><td colspan="2" style="padding:5px 6px;font-weight:700">TOPLAM</td><td style="text-align:center;padding:5px 6px;font-weight:800;font-size:15px;color:'+sc2+'">'+c.score+'</td><td style="padding:5px 6px;color:#94a3b8">/ 100</td></tr></table>';
   document.getElementById('scorePopupBody').innerHTML=h;
-  // İçerik eklendikten SONRA yüksekliği ölç
-  p.style.position='fixed'; p.style.top='-9999px'; p.style.left='-9999px';
-  p.style.display='block';
+  var p=document.getElementById('scorePopup');
+  // İçerik eklendikten sonra boyutu ölç (ekran dışında)
+  p.style.position='fixed'; p.style.top='-9999px'; p.style.left='-9999px'; p.style.display='block';
   var popH=p.offsetHeight, popW=p.offsetWidth;
   p.style.display='none';
+  // Viewport koordinatları (fixed için scrollY gerekmez)
   var rect=ev.target.getBoundingClientRect();
   var viewH=window.innerHeight, viewW=window.innerWidth;
-  // Yatay
-  var left=rect.left+window.scrollX;
-  if(left+popW>window.scrollX+viewW) left=window.scrollX+viewW-popW-10;
-  if(left<window.scrollX+10) left=window.scrollX+10;
-  // Dikey: aşağıda yer varsa aşağı, yoksa yukarı, ikisi de yoksa ortala
+  var left=rect.left; if(left+popW>viewW) left=viewW-popW-10; if(left<10) left=10;
   var top;
-  if(viewH-rect.bottom>=popH+10) top=rect.bottom+window.scrollY+6;
-  else if(rect.top>=popH+10) top=rect.top+window.scrollY-popH-6;
-  else top=window.scrollY+Math.max(10,(viewH-popH)/2);
+  if(viewH-rect.bottom>=popH+10) top=rect.bottom+6;
+  else if(rect.top>=popH+10) top=rect.top-popH-6;
+  else top=Math.max(10,(viewH-popH)/2);
   p.style.top=top+'px'; p.style.left=left+'px'; p.style.display='block';
 }
 function closeScorePopup(){document.getElementById('scorePopup').style.display='none';}
