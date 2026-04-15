@@ -1072,16 +1072,34 @@ function buildCusts(){
       }
     }
   });
-  // Aktivite temsilcisi varsa onu kullan, yoksa fatura temsilcisini kullan
-  Object.values(map).forEach(function(m){
-    if(m.repFromAkt) m.rep = m.repFromAkt;
-  });
-  // Manuel override varsa onu kullan
-  // DEFAULT overrides (Excel'den gelen sabit atamalar) + localStorage manuel overrides
+  // TEMSİLCİ ATAMA — SADECE MÜŞTERİLER-VKN DOSYASI (D.mst)
+  var normMst = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
+  var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','']);
+  var finalRepMap = {};
+  var mstLoaded = D.mst && D.mst.length > 0;
+
+  if(mstLoaded){
+    D.mst.forEach(function(r){
+      var vkn = String(r['VKN']||'').replace(/\D/g,'');
+      var rep = String(r['Satış çalışanı kodu']||'').trim();
+      rep = normMst[rep] || rep;
+      if(vkn && rep && !sahteMst.has(rep)) finalRepMap[vkn] = rep;
+    });
+    // Excel'de olmayan müşterilerin temsilcisini temizle
+    Object.values(map).forEach(function(m){
+      if(!finalRepMap[m.vkn]) m.rep = '';
+    });
+  } else {
+    finalRepMap = DEFAULT_REP_OVERRIDES;
+  }
+
+  // localStorage manuel override'ları en üste ekle
   var lsOverrides = JSON.parse(localStorage.getItem('crm_rep_overrides')||'{}');
-  var overrides = Object.assign({}, DEFAULT_REP_OVERRIDES, lsOverrides);
+  Object.keys(lsOverrides).forEach(function(k){ finalRepMap[k] = lsOverrides[k]; });
+
+  // Tüm müşterilere uygula
   Object.values(map).forEach(function(m){
-    if(overrides[m.vkn]) m.rep = overrides[m.vkn];
+    if(finalRepMap[m.vkn]) m.rep = finalRepMap[m.vkn];
   });
   CUSTS=Object.values(map);
   CUSTS.forEach(function(c){
