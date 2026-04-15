@@ -1132,12 +1132,9 @@ function addPotansiyelCustomers(){
   var normalize = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
   var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','']);
 
-  // Mevcut VKN ve M-kodlarını topla
+  // Sadece mevcut CUSTS VKN'lerini takip et
   var existingVkns = new Set(CUSTS.map(function(c){return c.vkn;}));
-  var existingMcodes = new Set();
-  D.fat.forEach(function(r){var mc=(r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();if(mc)existingMcodes.add(mc);});
-  D.akt.forEach(function(r){var mc=(r['Muhatap kodu']||'').trim();if(mc)existingMcodes.add(mc);});
-  D.tek.forEach(function(r){var mc=(r['Müşteri/satıcı kodu']||'').trim();if(mc)existingMcodes.add(mc);});
+  var existingMcodes = new Set(); // D.mst içinde tekrar eklemeyi önle
 
   // Şehir bilgisi için sektör ve grup haritaları
   var vknSehir = {};
@@ -1161,9 +1158,10 @@ function addPotansiyelCustomers(){
     // Tanımlayıcı: VKN varsa VKN, yoksa "POT_"+M-kodu
     var identifier = vkn || ('POT_'+mKod);
 
-    // Zaten CUSTS'da varsa sadece temsilciyi güncelle (DEFAULT_REP_OVERRIDES zaten yapıyor)
-    if(existingVkns.has(identifier) || (vkn && existingVkns.has(vkn))) return;
-    if(!vkn && existingMcodes.has(mKod)) return;
+    // VKN varsa CUSTS'da zaten var mı kontrol et
+    if(vkn && existingVkns.has(vkn)) return;
+    // Aynı D.mst içinde tekrar var mı kontrol et
+    if(existingVkns.has(identifier) || existingMcodes.has(mKod)) return;
 
     // Ekstra bilgi
     var extra = vknSehir[vkn] || {};
