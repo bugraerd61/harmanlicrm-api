@@ -1174,7 +1174,9 @@ function addPotansiyelCustomers(){
     if(sahte.has(rep) || !rep || !name) return;
 
     // Tanımlayıcı: VKN varsa VKN, yoksa "POT_"+M-kodu
-    var identifier = vkn || ('POT_'+mKod);
+    // VKN'siz müşterilerde aynı M-kodu farklı firmalar için firma adını da ekle
+    var nameKey = name.replace(/[^A-ZÇĞİÖŞÜa-zçğışöüñ0-9]/g,'').substring(0,8).toUpperCase();
+    var identifier = vkn || ('POT_'+mKod+'_'+nameKey);
 
     // VKN varsa CUSTS'da zaten var mı kontrol et
     if(vkn && existingVkns.has(vkn)) return;
