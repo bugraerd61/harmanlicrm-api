@@ -1118,13 +1118,15 @@ function buildCusts(){
     // D.mst'de olmayan müşteriler:
     // - EUR > 0 ise fatura'nın Temsilci kolonunu kullan
     // - EUR = 0 ise boş bırak
+    var GECERSIZ_REP = new Set(['-Satış çalışanı yok-','ŞİRKET_','' ]);
     Object.values(map).forEach(function(m){
       if(!finalRepMap[m.vkn]){
         if(m.totalEur > 0){
-          // Fatura temsilcisini koru (zaten map'te var)
           var fatRep = m.rep || '';
-          // Pazar yeri değilse kullan
-          m.rep = PAZAR_YERLERI.has(fatRep.toUpperCase()) ? '' : fatRep;
+          fatRep = normMst[fatRep] || fatRep; // normalize
+          // Pazar yeri veya geçersiz değilse kullan
+          if(PAZAR_YERLERI.has(fatRep.toUpperCase()) || fatRep === '-Satış çalışanı yok-') fatRep = '';
+          m.rep = fatRep;
         } else {
           m.rep = '';
         }
@@ -1149,7 +1151,7 @@ function buildCusts(){
     c.hasFatura = c.totalEur > 0;
 
     // Son alım tarihi yoksa son aktivite tarihini baz al
-    var refDate = c.lastDate || c.lastAktDate || null;
+    var refDate = c.lastDate && c.lastAktDate ? (c.lastDate > c.lastAktDate ? c.lastDate : c.lastAktDate) : (c.lastDate || c.lastAktDate || null);
     c.silentDays = refDate ? daysDiff(refDate, TODAY) : 9999;
 
     // Sıfır tutarlı fatura varsa (numune) → Aday Müşteri olarak işaretle
