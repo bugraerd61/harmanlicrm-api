@@ -960,11 +960,16 @@ function buildAll(){
   // AI otomatik başlatılmıyor — manuel butona bırakıldı
 }
 
+var PAZAR_YERLERI = new Set(['AMAZON','N11','TRENDYOL','HEPSİBURADA','GİTTİGİDİYOR']);
+
 function buildCusts(){
   var map={};
   D.fat.forEach(function(r){
     var v=normVKN(r['VKN']);
     if(!v||v===HARMANLI_VKN) return;
+    // Pazar yeri müşterilerini atla
+    var repKontrol = (r['Temsilci']||r['Satış çalışanı adı']||'').trim().toUpperCase();
+    if(PAZAR_YERLERI.has(repKontrol)) return;
     if(!map[v]){
       map[v]={
         vkn:v,
@@ -1076,7 +1081,7 @@ function buildCusts(){
   });
   // TEMSİLCİ ATAMA — MÜŞTERİ/ADAY MÜŞTERİ DOSYASI (D.mst)
   var normMst = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
-  var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','-Satış çalışanı yok-','']);
+  var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','-Satış çalışanı yok-','']);
   var finalRepMap = {};
   var mstLoaded = D.mst && D.mst.length > 0;
 
@@ -1110,9 +1115,20 @@ function buildCusts(){
       });
     }
 
-    // D.mst'de olmayan müşterilerin temsilcisini temizle
+    // D.mst'de olmayan müşteriler:
+    // - EUR > 0 ise fatura'nın Temsilci kolonunu kullan
+    // - EUR = 0 ise boş bırak
     Object.values(map).forEach(function(m){
-      if(!finalRepMap[m.vkn]) m.rep = '';
+      if(!finalRepMap[m.vkn]){
+        if(m.totalEur > 0){
+          // Fatura temsilcisini koru (zaten map'te var)
+          var fatRep = m.rep || '';
+          // Pazar yeri değilse kullan
+          m.rep = PAZAR_YERLERI.has(fatRep.toUpperCase()) ? '' : fatRep;
+        } else {
+          m.rep = '';
+        }
+      }
     });
   } else {
     finalRepMap = DEFAULT_REP_OVERRIDES;
@@ -1191,7 +1207,7 @@ function addPotansiyelCustomers(){
   if(!D.mst || !D.mst.length) return;
 
   var normalize = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
-  var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','-Satış çalışanı yok-','']);
+  var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','-Satış çalışanı yok-','']);
 
   // Sadece mevcut CUSTS VKN'lerini takip et
   var existingVkns = new Set(CUSTS.map(function(c){return c.vkn;}));
@@ -1393,9 +1409,11 @@ function renderAksiyon(globalQ){
       '<td>'+aiBtn+'</td></tr>';
   }).join('');
   var totCiro=data.reduce(function(s,c){return s+c.totalEur;},0);
+  var totSon12=data.reduce(function(s,c){return s+c.last12;},0);
   document.getElementById('aksMetrics').innerHTML=[
     ['Aksiyon Listesi',data.length,'müşteri'],
-    ['Toplam Ciro',fmt(totCiro),'EUR'],
+    ['Toplam Ciro (2024-Bugün)',fmt(totCiro),'EUR'],
+    ['Son 12 Ay Ciro',fmt(totSon12),'EUR'],
     ['Açık Teklif',data.filter(function(c){return c.acikTeklif>0;}).length,'müşteri'],
     ['Kritik Churn',data.filter(function(c){return c.churn==='Kritik';}).length,'müşteri']
   ].map(mc).join('');
