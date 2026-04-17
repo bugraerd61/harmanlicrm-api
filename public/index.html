@@ -1413,8 +1413,9 @@ function renderAksiyon(globalQ){
       '<td>'+(c.acikTeklif||'-')+'</td>'+
       '<td>'+aiBtn+'</td></tr>';
   }).join('');
-  var totCiro=data.reduce(function(s,c){return s+c.totalEur;},0);
-  var totSon12=data.reduce(function(s,c){return s+c.last12;},0);
+  var tumGercek = CUSTS.filter(function(c){ return c.hasFatura && !c.isPotansiyel; });
+  var totCiro = tumGercek.reduce(function(s,c){return s+c.totalEur;},0);
+  var totSon12 = tumGercek.reduce(function(s,c){return s+c.last12;},0);
   document.getElementById('aksMetrics').innerHTML=[
     ['Aksiyon Listesi',data.length,'müşteri'],
     ['Toplam Ciro (2024-Bugün)',fmt(totCiro),'EUR'],
