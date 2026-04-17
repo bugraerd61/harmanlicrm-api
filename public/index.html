@@ -679,10 +679,22 @@ function saveToServer(etiket){
     mstSatir: D.mst.length,
     musteriSayisi: CUSTS.length
   };
-  fetch(API+'/api/uploads',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-    body:JSON.stringify({etiket:etiket, fat:D.fat, akt:D.akt, sat:D.sat, tek:D.tek, mst:D.mst, meta:meta})
+  // Önce eski kayıtları sil (sadece en son kayıt kalsın)
+  fetch(API+'/api/uploads',{headers:{Authorization:'Bearer '+token}})
+  .then(function(r){return r.json();})
+  .then(function(list){
+    var silinenler = (list||[]).map(function(u){
+      return fetch(API+'/api/uploads/'+u.id,{method:'DELETE',headers:{Authorization:'Bearer '+token}});
+    });
+    return Promise.all(silinenler);
+  })
+  .catch(function(){}) // Silme hatası olsa bile devam et
+  .then(function(){
+    return fetch(API+'/api/uploads',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({etiket:etiket, fat:D.fat, akt:D.akt, sat:D.sat, tek:D.tek, mst:D.mst, meta:meta})
+    });
   }).then(function(r){return r.json();})
   .then(function(data){
     if(data.id){
