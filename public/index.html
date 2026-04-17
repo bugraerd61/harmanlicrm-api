@@ -626,8 +626,10 @@ function handleFiles(input){
   showToast('📂 ' + files.length + ' dosya okunuyor...');
   function detectType(filename, wb) {
     var fn = filename.toLowerCase();
-    // Müşteriler-VKN dosyası tespiti (önce kontrol et)
-    if(fn.includes('m') && (fn.includes('teri') || fn.includes('vkn') || fn.includes('musteri'))) return 'mst';
+    // Müşteriler / Aday Müşteriler dosyası tespiti (önce kontrol et)
+    if(fn.includes('aday')) return 'mst';
+    if(fn.includes('musteri') || fn.includes('müşteri')) return 'mst';
+    if(fn.includes('vkn')) return 'mst';
     if(wb.SheetNames.some(function(s){var sl=s.toLowerCase();return sl.includes('müşteri')||sl.includes('musteri');})) return 'mst';
     // Diğer tipler
     if(wb.SheetNames.some(function(s){return s.toLowerCase().includes('fatura');})) return 'fat';
@@ -967,7 +969,7 @@ function buildCusts(){
       map[v]={
         vkn:v,
         name:r['Muhatap adı']||r['Müşteri/satıcı adı']||v,
-        rep:r['Satış çalışanı adı']||r['Müşteri Temsilcisi']||'',
+        rep:r['Temsilci']||r['Satış çalışanı adı']||r['Müşteri Temsilcisi']||'',
         sek:r['Sektör adı']||r['IndName']||'',
         grp:r['Grup adı']||r['GroupName']||'',
         sehir:r['Sehir']||r['İl']||'',
@@ -1009,8 +1011,8 @@ function buildCusts(){
         m.dates.push(d);
         if(!m.lastDate||d>m.lastDate){
           m.lastDate=d;
-          // Son fatura tarihindeki temsilciyi al
-          var repSon = r['Satış çalışanı adı']||r['Müşteri Temsilcisi']||r['SlpName']||'';
+          // Son fatura tarihindeki temsilciyi al - Temsilci kolonu öncelikli
+          var repSon = r['Temsilci']||r['Satış çalışanı adı']||r['Müşteri Temsilcisi']||r['SlpName']||'';
           if(repSon) m.rep = repSon;
         }
         var yr12=new Date(TODAY);yr12.setFullYear(yr12.getFullYear()-1);
@@ -1072,20 +1074,43 @@ function buildCusts(){
       }
     }
   });
-  // TEMSİLCİ ATAMA — SADECE MÜŞTERİLER-VKN DOSYASI (D.mst)
+  // TEMSİLCİ ATAMA — MÜŞTERİ/ADAY MÜŞTERİ DOSYASI (D.mst)
   var normMst = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
-  var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','']);
+  var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','-Satış çalışanı yok-','']);
   var finalRepMap = {};
   var mstLoaded = D.mst && D.mst.length > 0;
 
   if(mstLoaded){
-    D.mst.forEach(function(r){
-      var vkn = String(r['VKN']||'').replace(/\D/g,'');
-      var rep = String(r['Satış çalışanı kodu']||'').trim();
-      rep = normMst[rep] || rep;
-      if(vkn && rep && !sahteMst.has(rep)) finalRepMap[vkn] = rep;
-    });
-    // Excel'de olmayan müşterilerin temsilcisini temizle
+    var firstMstRow = D.mst[0] || {};
+    var isNewMstFormat = !!firstMstRow['SlpName']; // Yeni format: SlpName kolonu var
+
+    if(isNewMstFormat){
+      // Yeni format: M-kodu bazlı → fatura üzerinden VKN köprüsü kur
+      var mkodVknMap = {};
+      D.fat.forEach(function(r){
+        var mc = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
+        var vkn = normVKN(r['VKN']||'');
+        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = vkn;
+      });
+      D.mst.forEach(function(r){
+        var mc = String(r['Muhatap kodu']||'').trim();
+        var rep = String(r['SlpName']||'').trim();
+        rep = normMst[rep] || rep;
+        if(!mc || !rep || sahteMst.has(rep)) return;
+        var vkn = mkodVknMap[mc];
+        if(vkn && !finalRepMap[vkn]) finalRepMap[vkn] = rep;
+      });
+    } else {
+      // Eski format: VKN bazlı
+      D.mst.forEach(function(r){
+        var vkn = String(r['VKN']||'').replace(/\D/g,'');
+        var rep = String(r['Satış çalışanı kodu']||'').trim();
+        rep = normMst[rep] || rep;
+        if(vkn && rep && !sahteMst.has(rep)) finalRepMap[vkn] = rep;
+      });
+    }
+
+    // D.mst'de olmayan müşterilerin temsilcisini temizle
     Object.values(map).forEach(function(m){
       if(!finalRepMap[m.vkn]) m.rep = '';
     });
@@ -1103,27 +1128,45 @@ function buildCusts(){
   });
   CUSTS=Object.values(map);
   CUSTS.forEach(function(c){
-    // Son alım tarihi yoksa son aktivite tarihini baz al, o da yoksa çok eski say
+    // Gerçek müşteri = en az bir EUR > 0 satış var
+    // Sadece sıfır tutarlı fatura (numune/deneme) = Aday Müşteri
+    c.hasFatura = c.totalEur > 0;
+
+    // Son alım tarihi yoksa son aktivite tarihini baz al
     var refDate = c.lastDate || c.lastAktDate || null;
     c.silentDays = refDate ? daysDiff(refDate, TODAY) : 9999;
-    c.hasFatura = !!c.lastDate; // fatura kaydı var mı?
+
+    // Sıfır tutarlı fatura varsa (numune) → Aday Müşteri olarak işaretle
+    if(!c.hasFatura && c.lastDate){
+      c.isPotansiyel = true;
+      c.segment = 'Potansiyel';
+      c.churn = 'Potansiyel';
+      c.silentDays = 9999;
+    }
+
     c.karPct=c.totalEur>0?Math.round(c.brutKar/c.totalEur*100):0;
     c.catCount=c.cats.size;
     c.catList=Array.from(c.cats);
-    if(c.silentDays<=30) c.churn='Aktif';
-    else if(c.silentDays<=90) c.churn='Stabil';
-    else if(c.silentDays<=180) c.churn='Riskli';
-    else c.churn='Kritik';
-    // RFM
-    var R=Math.max(1,Math.min(5,5-Math.floor(c.silentDays/60)));
-    var F=Math.min(5,Math.ceil(c.fatCount/5));
-    var M=c.totalEur>=50000?5:c.totalEur>=20000?4:c.totalEur>=8000?3:c.totalEur>=2000?2:1;
-    c.rfmR=R;c.rfmF=F;c.rfmM=M;
-    c.rfmScore=R+F+M;
-    if(c.rfmScore>=12) c.segment='Şampiyon';
-    else if(c.rfmScore>=9) c.segment='Sadık';
-    else if(c.rfmScore>=6) c.segment='Potansiyel';
-    else c.segment='Riskli';
+    if(!c.isPotansiyel){
+      if(c.silentDays<=30) c.churn='Aktif';
+      else if(c.silentDays<=90) c.churn='Stabil';
+      else if(c.silentDays<=180) c.churn='Riskli';
+      else c.churn='Kritik';
+    }
+    // RFM — sadece gerçek müşteriler için
+    if(!c.isPotansiyel){
+      var R=Math.max(1,Math.min(5,5-Math.floor(c.silentDays/60)));
+      var F=Math.min(5,Math.ceil(c.fatCount/5));
+      var M=c.totalEur>=50000?5:c.totalEur>=20000?4:c.totalEur>=8000?3:c.totalEur>=2000?2:1;
+      c.rfmR=R;c.rfmF=F;c.rfmM=M;
+      c.rfmScore=R+F+M;
+      if(c.rfmScore>=12) c.segment='Şampiyon';
+      else if(c.rfmScore>=9) c.segment='Sadık';
+      else if(c.rfmScore>=6) c.segment='Potansiyel';
+      else c.segment='Riskli';
+    } else {
+      c.rfmR=1;c.rfmF=1;c.rfmM=1;c.rfmScore=3;
+    }
     // Aktivite say
     c.aktCount = 0;
     c.score = 0;
@@ -1148,13 +1191,18 @@ function addPotansiyelCustomers(){
   if(!D.mst || !D.mst.length) return;
 
   var normalize = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
-  var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','']);
+  var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','ŞİRKET','-Satış çalışanı yok-','']);
 
   // Sadece mevcut CUSTS VKN'lerini takip et
   var existingVkns = new Set(CUSTS.map(function(c){return c.vkn;}));
-  var existingMcodes = new Set(); // D.mst içinde tekrar eklemeyi önle
+  var existingMcodes = new Set(); // M-kodu bazlı dedup
+  var contactMap = {};  // email/tel → identifier (iletişim bazlı dedup)
 
-  // Şehir bilgisi için sektör ve grup haritaları
+  // Yeni/eski format tespiti
+  var firstRow = D.mst[0] || {};
+  var isNewFormat = !!firstRow['SlpName'];
+
+  // Şehir/sektör/grup bilgisi için fatura haritası (eski format için de lazım)
   var vknSehir = {};
   D.fat.forEach(function(r){
     var v=normVKN(r['VKN']);
@@ -1163,37 +1211,61 @@ function addPotansiyelCustomers(){
 
   var eklenen = 0;
   D.mst.forEach(function(r){
-    // MÜŞTERİLER-VKN sütunları: col1=M-kod, col2=Firma adı, col3=Temsilci, col4=VKN
-    var mKod = String(r['Muhatap adı']||'').trim();
-    var name = String(r['Muhatap kodu']||'').trim();
-    var rep  = String(r['Satış çalışanı kodu']||'').trim();
-    var vknRaw = String(r['VKN']||'').trim();
-    var vkn = vknRaw.replace(/\D/g,'');
+    var mKod, name, rep, vkn, sek, grp;
+
+    if(isNewFormat){
+      // Yeni format: Muhatap kodu=M-kod, Muhatap adı=Firma, SlpName=Temsilci, inddesc=Sektör, groupname=Grup
+      mKod = String(r['Muhatap kodu']||'').trim();
+      name = String(r['Muhatap adı']||'').trim();
+      rep  = String(r['SlpName']||'').trim();
+      vkn  = ''; // Yeni dosyada VKN yok
+      sek  = String(r['inddesc']||'').trim();
+      grp  = String(r['groupname']||'').trim();
+    } else {
+      // Eski format: Muhatap adı=M-kod, Muhatap kodu=Firma, Satış çalışanı kodu=Temsilci, VKN=VKN
+      mKod = String(r['Muhatap adı']||'').trim();
+      name = String(r['Muhatap kodu']||'').trim();
+      rep  = String(r['Satış çalışanı kodu']||'').trim();
+      vkn  = String(r['VKN']||'').replace(/\D/g,'');
+      var extra = vknSehir[vkn] || {};
+      sek  = extra.sek||'';
+      grp  = extra.grp||'';
+    }
 
     rep = normalize[rep] || rep;
     if(sahte.has(rep) || !rep || !name) return;
 
     // Tanımlayıcı: VKN varsa VKN, yoksa "POT_"+M-kodu
-    // VKN'siz müşterilerde aynı M-kodu farklı firmalar için firma adını da ekle
-    var nameKey = name.replace(/[^A-ZÇĞİÖŞÜa-zçğışöüñ0-9]/g,'').substring(0,8).toUpperCase();
-    var identifier = vkn || ('POT_'+mKod+'_'+nameKey);
+    // NOT: Aynı M-kod = aynı firma (Harmanlı ve BOSS'ta farklı isimle olabilir)
+    var identifier = vkn || ('POT_'+mKod);
 
     // VKN varsa CUSTS'da zaten var mı kontrol et
     if(vkn && existingVkns.has(vkn)) return;
-    // Aynı D.mst içinde tekrar var mı kontrol et
+    // Aynı M-kodu daha önce ekledik mi? (Harmanlı+BOSS çift sayımını önle)
     if(existingVkns.has(identifier) || existingMcodes.has(mKod)) return;
 
-    // Ekstra bilgi
-    var extra = vknSehir[vkn] || {};
+    // Email/telefon bazlı dedup (farklı M-kodu ama aynı firma olabilir)
+    var mailA = String(r['E-posta']||'').trim().toLowerCase();
+    var mailB = String(r['E_MailL']||'').trim().toLowerCase();
+    var tel1n = String(r['Tel1']||'').replace(/\D/g,'');
+    var tel2n = String(r['Tel2']||'').replace(/\D/g,'');
+    var celln = String(r['Cellolar']||'').replace(/\D/g,'');
+    var contacts = [mailA, mailB, tel1n, tel2n, celln].filter(function(c){return c.length >= 7;});
+    for(var ci=0; ci<contacts.length; ci++){
+      if(contactMap[contacts[ci]]) return; // Bu iletişim bilgisi zaten eklendi
+    }
+
+    // Şehir bilgisi
+    var sehir = (vkn && vknSehir[vkn]) ? vknSehir[vkn].sehir : '';
 
     // Potansiyel müşteri olarak ekle
     CUSTS.push({
       vkn: identifier,
       name: name,
       rep: rep,
-      sek: extra.sek||'',
-      grp: extra.grp||'',
-      sehir: extra.sehir||'',
+      sek: sek||'',
+      grp: grp||'',
+      sehir: sehir||'',
       ilce: '',
       totalEur: 0,
       last12: 0,
@@ -1228,6 +1300,8 @@ function addPotansiyelCustomers(){
       isPotansiyel: true
     });
     existingVkns.add(identifier);
+    existingMcodes.add(mKod);
+    contacts.forEach(function(c){ contactMap[c] = identifier; });
     eklenen++;
   });
 
