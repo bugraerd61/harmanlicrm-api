@@ -1151,7 +1151,10 @@ function buildCusts(){
     c.hasFatura = c.totalEur > 0;
 
     // Son alım tarihi yoksa son aktivite tarihini baz al
-    var refDate = c.lastDate && c.lastAktDate ? (c.lastDate > c.lastAktDate ? c.lastDate : c.lastAktDate) : (c.lastDate || c.lastAktDate || null);
+    // silentDays: son ALIM tarihinden bu yana geçen gün (fatura bazlı)
+    // Aktivite tarihi silentDays'i değiştirmez — sadece tablo gösterimi için lastAktDate ayrı tutulur
+    // Faturası olan müşteri: lastDate kullan | Potansiyel (fatura yok): lastAktDate kullan
+    var refDate = c.lastDate || c.lastAktDate || null;
     c.silentDays = refDate ? daysDiff(refDate, TODAY) : 9999;
 
     // Sıfır tutarlı fatura varsa (numune) → Aday Müşteri olarak işaretle
