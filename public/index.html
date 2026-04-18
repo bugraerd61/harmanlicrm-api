@@ -1103,18 +1103,40 @@ function buildCusts(){
 
     if(isNewMstFormat){
       // Yeni format: M-kodu bazlı → fatura üzerinden VKN köprüsü kur
+      // M-kod çakışma kontrolü: Türkçe normalize edilmiş firma adı karşılaştırması
+      function normFirma(s){
+        return String(s).toUpperCase()
+          .replace(/İ/g,'I').replace(/Ğ/g,'G').replace(/Ş/g,'S')
+          .replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
+          .replace(/[^A-Z0-9]/g,'');
+      }
+      // mkodVknMap: mc → {vkn, norm} — faturadaki her M-kod için VKN + normalize firma adı
       var mkodVknMap = {};
       D.fat.forEach(function(r){
-        var mc = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
+        var mc  = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
         var vkn = normVKN(r['VKN']||'');
-        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = vkn;
+        var fatIsim = normFirma(r['Müşteri/satıcı adı']||r['Muhatap adı']||'');
+        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = {vkn:vkn, norm:fatIsim};
       });
+      // D.mst'teki her M-kodu tek tek işle
       D.mst.forEach(function(r){
-        var mc = String(r['Muhatap kodu']||'').trim();
+        var mc  = String(r['Muhatap kodu']||'').trim();
         var rep = String(r['SlpName']||'').trim();
         rep = normMst[rep] || rep;
         if(!mc || !rep || sahteMst.has(rep)) return;
-        var vkn = mkodVknMap[mc];
+        var entry = mkodVknMap[mc];
+        if(!entry) return;
+        var vkn     = entry.vkn;
+        var fatNorm = entry.norm;
+        var dstNorm = normFirma(r['Muhatap adı']||'');
+        // M-kod çakışma kontrolü: ilk 6 karakter + içerme kontrolü
+        // Eğer iki firma adı hiç örtüşmüyorsa → çakışma → atla
+        if(dstNorm.length >= 4 && fatNorm.length >= 4){
+          var f6 = fatNorm.slice(0,6), d6 = dstNorm.slice(0,6);
+          var f4 = fatNorm.slice(0,4), d4 = dstNorm.slice(0,4);
+          var eslesme = (f6===d6) || fatNorm.indexOf(d4)>=0 || dstNorm.indexOf(f4)>=0;
+          if(!eslesme) return; // M-kod çakışması → bu atamayı atla
+        }
         if(vkn && !finalRepMap[vkn]) finalRepMap[vkn] = rep;
       });
     } else {
@@ -1231,6 +1253,19 @@ function addPotansiyelCustomers(){
   var existingMcodes = new Set(); // M-kodu bazlı dedup
   var contactMap = {};  // email/tel → identifier (iletişim bazlı dedup)
 
+  // İsim bazlı dedup: Senaryo 2 — farklı M-kod ama aynı normalize isim = aynı firma
+  function normPotIsim(s){
+    s = String(s).toUpperCase()
+      .replace(/İ/g,'I').replace(/Ğ/g,'G').replace(/Ş/g,'S')
+      .replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
+      .replace(/ı/g,'I').replace(/ğ/g,'G').replace(/ş/g,'S')
+      .replace(/ü/g,'U').replace(/ö/g,'O').replace(/ç/g,'C');
+    return s.replace(/[^A-Z0-9]/g,'');
+  }
+  // Mevcut CUSTS'daki isimleri kaydet
+  var normIsimSet = new Set();
+  CUSTS.forEach(function(c){ if(c.name) normIsimSet.add(normPotIsim(c.name)); });
+
   // Yeni/eski format tespiti
   var firstRow = D.mst[0] || {};
   var isNewFormat = !!firstRow['SlpName'];
@@ -1274,8 +1309,11 @@ function addPotansiyelCustomers(){
 
     // VKN varsa CUSTS'da zaten var mı kontrol et
     if(vkn && existingVkns.has(vkn)) return;
-    // Aynı M-kodu daha önce ekledik mi? (Harmanlı+BOSS çift sayımını önle)
+    // Aynı M-kodu daha önce ekledik mi?
     if(existingVkns.has(identifier) || existingMcodes.has(mKod)) return;
+    // Senaryo 2: Farklı M-kod ama aynı normalize isim → aynı firma → atla
+    var normN = normPotIsim(name);
+    if(normN.length >= 6 && normIsimSet.has(normN)) return;
 
     // Email/telefon bazlı dedup (farklı M-kodu ama aynı firma olabilir)
     var mailA = String(r['E-posta']||'').trim().toLowerCase();
@@ -1334,6 +1372,7 @@ function addPotansiyelCustomers(){
     });
     existingVkns.add(identifier);
     existingMcodes.add(mKod);
+    if(normN && normN.length >= 6) normIsimSet.add(normN); // Senaryo 2 dedup
     contacts.forEach(function(c){ contactMap[c] = identifier; });
     eklenen++;
   });
