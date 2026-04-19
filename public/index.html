@@ -1111,18 +1111,35 @@ function buildCusts(){
 
     if(isNewMstFormat){
       // Yeni format: M-kodu bazlı → fatura üzerinden VKN köprüsü kur
+      function normFirma(s){
+        return String(s).toUpperCase()
+          .replace(/İ/g,'I').replace(/Ğ/g,'G').replace(/Ş/g,'S')
+          .replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
+          .replace(/[^A-Z0-9]/g,'');
+      }
       var mkodVknMap = {};
       D.fat.forEach(function(r){
-        var mc = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
+        var mc  = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
         var vkn = normVKN(r['VKN']||'');
-        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = vkn;
+        var fatIsim = normFirma(r['Müşteri/satıcı adı']||r['Muhatap adı']||'');
+        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = {vkn:vkn, norm:fatIsim};
       });
       D.mst.forEach(function(r){
-        var mc = String(r['Muhatap kodu']||'').trim();
+        var mc  = String(r['Muhatap kodu']||'').trim();
         var rep = String(r['SlpName']||'').trim();
         rep = normMst[rep] || rep;
         if(!mc || !rep || sahteMst.has(rep)) return;
-        var vkn = mkodVknMap[mc];
+        var entry = mkodVknMap[mc];
+        if(!entry) return;
+        var vkn     = entry.vkn;
+        var fatNorm = entry.norm;
+        var dstNorm = normFirma(r['Muhatap adı']||'');
+        if(dstNorm.length >= 4 && fatNorm.length >= 4){
+          var f6 = fatNorm.slice(0,6), d6 = dstNorm.slice(0,6);
+          var f4 = fatNorm.slice(0,4), d4 = dstNorm.slice(0,4);
+          var eslesme = (f6===d6) || fatNorm.indexOf(d4)>=0 || dstNorm.indexOf(f4)>=0;
+          if(!eslesme) return;
+        }
         if(vkn && !finalRepMap[vkn]) finalRepMap[vkn] = rep;
       });
     } else {
