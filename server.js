@@ -235,7 +235,6 @@ app.post('/api/ai', auth, function(req, res) {
 
 // ── SPA CATCH-ALL — EN SONDA OLMALI ──────────────────────────────────
 app.get('*', function(req, res) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
