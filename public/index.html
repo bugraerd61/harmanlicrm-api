@@ -163,7 +163,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="aksTop" onchange="renderAksiyon()"><option value="30">Top 30</option><option value="50">Top 50</option><option value="100">Top 100</option><option value="9999">Tümü</option></select>
     <button class="btn btn-g" onclick="exportAksiyon()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>#</th><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Skor</th><th>Bu Yıl (Oca-Bugün)</th><th>Geçen Yıl (Oca-Bugün)</th><th>Aksiyon</th><th>Kategori</th><th>Neden Şimdi?</th><th>Son Alım</th><th>Son Ziyaret</th><th>Sessiz</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="aksBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>#</th><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Skor</th><th>Bu Yıl (Oca-Bugün)</th><th>Geçen Yıl (Oca-Bugün)</th><th>Aksiyon</th><th>Kategori</th><th>Neden Şimdi?</th><th>Son Alım</th><th>Son Ziyaret</th><th>Sessiz</th><th>Sıklık</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="aksBody"></tbody></table></div>
 </div>
 
 <!-- MÜŞTERİLER -->
@@ -906,8 +906,16 @@ function calcScores(){
     sc.dusus=c.yillikTrend==='DUSUS'?10:0;
     sc.totalBonus=Math.round((c.totalEur/maxEur)*10);
     sc.ceza=(c.aktCount>=10&&(ciro6ay[c.vkn]||0)===0)?-5:0;
+    sc.churnBaz=0;
+    if(!c.avgGap&&!c.isPotansiyel){
+      if(c.silentDays>365)sc.churnBaz=6;
+      else if(c.silentDays>180)sc.churnBaz=10;
+      else if(c.silentDays>90)sc.churnBaz=12;
+      else if(c.silentDays>30)sc.churnBaz=8;
+      else sc.churnBaz=4;
+    }
     c.scoreComponents=sc;
-    c.score=Math.max(0,Math.min(100,sc.acikTeklif+sc.sapma+sc.ciro12+sc.donusmedi+sc.buyume+sc.dusus+sc.totalBonus+sc.ceza));
+    c.score=Math.max(0,Math.min(100,sc.acikTeklif+sc.sapma+sc.ciro12+sc.donusmedi+sc.buyume+sc.dusus+sc.totalBonus+sc.ceza+sc.churnBaz));
   });
 
   // Aksiyon Kategorisi
@@ -1103,40 +1111,18 @@ function buildCusts(){
 
     if(isNewMstFormat){
       // Yeni format: M-kodu bazlı → fatura üzerinden VKN köprüsü kur
-      // M-kod çakışma kontrolü: Türkçe normalize edilmiş firma adı karşılaştırması
-      function normFirma(s){
-        return String(s).toUpperCase()
-          .replace(/İ/g,'I').replace(/Ğ/g,'G').replace(/Ş/g,'S')
-          .replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
-          .replace(/[^A-Z0-9]/g,'');
-      }
-      // mkodVknMap: mc → {vkn, norm} — faturadaki her M-kod için VKN + normalize firma adı
       var mkodVknMap = {};
       D.fat.forEach(function(r){
-        var mc  = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
+        var mc = (r['Müşteri/satıcı kodu']||r['Muhatap kodu']||'').trim();
         var vkn = normVKN(r['VKN']||'');
-        var fatIsim = normFirma(r['Müşteri/satıcı adı']||r['Muhatap adı']||'');
-        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = {vkn:vkn, norm:fatIsim};
+        if(mc && vkn && !mkodVknMap[mc]) mkodVknMap[mc] = vkn;
       });
-      // D.mst'teki her M-kodu tek tek işle
       D.mst.forEach(function(r){
-        var mc  = String(r['Muhatap kodu']||'').trim();
+        var mc = String(r['Muhatap kodu']||'').trim();
         var rep = String(r['SlpName']||'').trim();
         rep = normMst[rep] || rep;
         if(!mc || !rep || sahteMst.has(rep)) return;
-        var entry = mkodVknMap[mc];
-        if(!entry) return;
-        var vkn     = entry.vkn;
-        var fatNorm = entry.norm;
-        var dstNorm = normFirma(r['Muhatap adı']||'');
-        // M-kod çakışma kontrolü: ilk 6 karakter + içerme kontrolü
-        // Eğer iki firma adı hiç örtüşmüyorsa → çakışma → atla
-        if(dstNorm.length >= 4 && fatNorm.length >= 4){
-          var f6 = fatNorm.slice(0,6), d6 = dstNorm.slice(0,6);
-          var f4 = fatNorm.slice(0,4), d4 = dstNorm.slice(0,4);
-          var eslesme = (f6===d6) || fatNorm.indexOf(d4)>=0 || dstNorm.indexOf(f4)>=0;
-          if(!eslesme) return; // M-kod çakışması → bu atamayı atla
-        }
+        var vkn = mkodVknMap[mc];
         if(vkn && !finalRepMap[vkn]) finalRepMap[vkn] = rep;
       });
     } else {
@@ -1253,19 +1239,6 @@ function addPotansiyelCustomers(){
   var existingMcodes = new Set(); // M-kodu bazlı dedup
   var contactMap = {};  // email/tel → identifier (iletişim bazlı dedup)
 
-  // İsim bazlı dedup: Senaryo 2 — farklı M-kod ama aynı normalize isim = aynı firma
-  function normPotIsim(s){
-    s = String(s).toUpperCase()
-      .replace(/İ/g,'I').replace(/Ğ/g,'G').replace(/Ş/g,'S')
-      .replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
-      .replace(/ı/g,'I').replace(/ğ/g,'G').replace(/ş/g,'S')
-      .replace(/ü/g,'U').replace(/ö/g,'O').replace(/ç/g,'C');
-    return s.replace(/[^A-Z0-9]/g,'');
-  }
-  // Mevcut CUSTS'daki isimleri kaydet
-  var normIsimSet = new Set();
-  CUSTS.forEach(function(c){ if(c.name) normIsimSet.add(normPotIsim(c.name)); });
-
   // Yeni/eski format tespiti
   var firstRow = D.mst[0] || {};
   var isNewFormat = !!firstRow['SlpName'];
@@ -1309,11 +1282,8 @@ function addPotansiyelCustomers(){
 
     // VKN varsa CUSTS'da zaten var mı kontrol et
     if(vkn && existingVkns.has(vkn)) return;
-    // Aynı M-kodu daha önce ekledik mi?
+    // Aynı M-kodu daha önce ekledik mi? (Harmanlı+BOSS çift sayımını önle)
     if(existingVkns.has(identifier) || existingMcodes.has(mKod)) return;
-    // Senaryo 2: Farklı M-kod ama aynı normalize isim → aynı firma → atla
-    var normN = normPotIsim(name);
-    if(normN.length >= 6 && normIsimSet.has(normN)) return;
 
     // Email/telefon bazlı dedup (farklı M-kodu ama aynı firma olabilir)
     var mailA = String(r['E-posta']||'').trim().toLowerCase();
@@ -1372,7 +1342,6 @@ function addPotansiyelCustomers(){
     });
     existingVkns.add(identifier);
     existingMcodes.add(mKod);
-    if(normN && normN.length >= 6) normIsimSet.add(normN); // Senaryo 2 dedup
     contacts.forEach(function(c){ contactMap[c] = identifier; });
     eklenen++;
   });
@@ -1461,6 +1430,7 @@ function renderAksiyon(globalQ){
       '<td>'+(c.lastDate ? fd(c.lastDate) : (c.lastAktDate ? '<span style="color:#94a3b8;font-size:10px">Akt:'+fd(c.lastAktDate)+'</span>' : '-'))+'</td>'+
       '<td style="font-size:11px">'+(c.lastZiyaretDate ? fd(c.lastZiyaretDate) : '<span style="color:#94a3b8">-</span>')+'</td>'+
       '<td style="color:'+(c.silentDays>180?'#dc2626':c.silentDays>90?'#d97706':'inherit')+'">'+c.silentDays+'g</td>'+
+      '<td style="font-size:11px;color:#64748b">'+(c.avgGap?(c.avgGap<=7?'Haftalık':c.avgGap<=14?'2 Haftada 1':c.avgGap<=31?'Aylık':c.avgGap<=90?'2-3 Aylık':'Seyrek'):'<span style="color:#cbd5e1">-</span>')+'</td>'+
       '<td>'+(c.acikTeklif||'-')+'</td>'+
       '<td>'+aiBtn+'</td></tr>';
   }).join('');
@@ -3947,6 +3917,7 @@ function openScorePopup(ev,vkn){
     ['Düşüş Trendi','+10',sc.dusus||0,c.yillikTrend==='DUSUS'?'▼ '+fmt(c.ciroBuYil)+' vs '+fmt(c.ciroGecenYilAyniDonem):'-'],
     ['Toplam Ciro bonus','0–10',sc.totalBonus||0,fmt(c.totalEur)+' EUR']
   ];
+  if(sc.churnBaz&&sc.churnBaz>0) rows.push(['Churn baz (tek/seyrek alım)','0–12',sc.churnBaz,c.silentDays+'g sessiz, döngü verisi yok']);
   if(sc.ceza&&sc.ceza!==0) rows.push(['Aktivite / sonuç yok','−5',sc.ceza,c.aktCount+' aktivite, 6ay 0 EUR']);
   var sc2=c.score>=70?'#dc2626':c.score>=40?'#d97706':'#16a34a';
   var h='<table style="width:100%;font-size:11px;border-collapse:collapse"><tr style="background:#f8fafc"><th style="text-align:left;padding:4px 6px;color:#64748b;border-bottom:1px solid #e2e8f0">Bileşen</th><th style="text-align:center;padding:4px 6px;color:#64748b;border-bottom:1px solid #e2e8f0">Max</th><th style="text-align:center;padding:4px 6px;color:#64748b;border-bottom:1px solid #e2e8f0">Puan</th><th style="text-align:left;padding:4px 6px;color:#64748b;border-bottom:1px solid #e2e8f0">Durum</th></tr>';
