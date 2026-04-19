@@ -2084,7 +2084,7 @@ function renderTeklifler(globalQ){
       };
     }
     belgeMap[belge].urunler.push((r['ItemName']||r['Kalem/hizmet tanımı']||''));
-    belgeMap[belge].toplamEur+=(parseFloat(r['Price'])||parseFloat(r['EUR_Total_NET'])||0);
+    belgeMap[belge].toplamEur+=(parseFloat(r['EUR_Total_NET'])||0);
   });
 
   var data=Object.values(belgeMap).sort(function(a,b){
