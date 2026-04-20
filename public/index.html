@@ -1120,9 +1120,19 @@ function buildCusts(){
 
   if(mstLoaded){
     var firstMstRow = D.mst[0] || {};
-    var isNewMstFormat = !!firstMstRow['SlpName']; // Yeni format: SlpName kolonu var
+    var isNewestMstFormat = !!firstMstRow['Muhatap türü'];  // En yeni: Muhatap türü + Satış çalışanı adı + Vergi no.
+    var isNewMstFormat = !!firstMstRow['SlpName'];          // Önceki yeni: SlpName kolonu var
 
-    if(isNewMstFormat){
+    if(isNewestMstFormat){
+      // En yeni format: VKN ve rep doğrudan okunabilir — köprüye gerek yok
+      // Kolonlar: Muhatap kodu, Muhatap adı, Muhatap türü, Satış çalışanı adı, TC kimlik no., Vergi no.
+      D.mst.forEach(function(r){
+        var vkn = String(r['Vergi no.']||'').replace(/\D/g,'');
+        var rep = String(r['Satış çalışanı adı']||'').trim();
+        rep = normMst[rep] || rep;
+        if(vkn && rep && !sahteMst.has(rep) && !finalRepMap[vkn]) finalRepMap[vkn] = rep;
+      });
+    } else if(isNewMstFormat){
       // Yeni format: M-kodu bazlı → fatura üzerinden VKN köprüsü kur
       function normFirma(s){
         return String(s).toUpperCase()
