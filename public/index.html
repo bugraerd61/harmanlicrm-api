@@ -1269,9 +1269,10 @@ function addPotansiyelCustomers(){
   var existingMcodes = new Set(); // M-kodu bazlı dedup
   var contactMap = {};  // email/tel → identifier (iletişim bazlı dedup)
 
-  // Yeni/eski format tespiti
+  // Format tespiti (3 format)
   var firstRow = D.mst[0] || {};
-  var isNewFormat = !!firstRow['SlpName'];
+  var isNewestFormat = !!firstRow['Muhatap türü'];  // En yeni: Muhatap türü kolonu var
+  var isNewFormat = !!firstRow['SlpName'];          // Önceki yeni: SlpName var
 
   // Şehir/sektör/grup bilgisi için fatura haritası (eski format için de lazım)
   var vknSehir = {};
@@ -1282,9 +1283,21 @@ function addPotansiyelCustomers(){
 
   var eklenen = 0;
   D.mst.forEach(function(r){
+    // En yeni formatta: SADECE Muhatap türü='L' olanlar potansiyel (C olanlar müşteri zaten)
+    if(isNewestFormat && String(r['Muhatap türü']||'').trim() !== 'L') return;
+
     var mKod, name, rep, vkn, sek, grp;
 
-    if(isNewFormat){
+    if(isNewestFormat){
+      // En yeni format: Muhatap kodu, Muhatap adı, Muhatap türü, Satış çalışanı adı, TC kimlik no., Vergi no.
+      mKod = String(r['Muhatap kodu']||'').trim();
+      name = String(r['Muhatap adı']||'').trim();
+      rep  = String(r['Satış çalışanı adı']||'').trim();
+      vkn  = String(r['Vergi no.']||'').replace(/\D/g,'');
+      var extra0 = vknSehir[vkn] || {};
+      sek  = extra0.sek||'';
+      grp  = extra0.grp||'';
+    } else if(isNewFormat){
       // Yeni format: Muhatap kodu=M-kod, Muhatap adı=Firma, SlpName=Temsilci, inddesc=Sektör, groupname=Grup
       mKod = String(r['Muhatap kodu']||'').trim();
       name = String(r['Muhatap adı']||'').trim();
