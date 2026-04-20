@@ -177,7 +177,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="custSeg" onchange="renderMusteriler()"><option value="">Tüm Segmentler</option><option>Şampiyon</option><option>Sadık</option><option>Potansiyel</option><option>Riskli</option></select>
     <button class="btn btn-g" onclick="exportMusteriler()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>Son 12 Ay</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>Bu Yıl (Oca-Bugün)</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
   <div class="pg" id="custPg"></div>
 </div>
 
@@ -1493,7 +1493,7 @@ function renderCustPage(){
   document.getElementById('custBody').innerHTML=page.map(function(c){
     return '<tr><td><strong>'+c.name+'</strong><br><span style="font-size:10px;color:#94a3b8">'+c.vkn+'</span></td>'+
       '<td>'+c.rep+'</td><td>'+c.sek+'</td><td>'+c.sehir+'</td>'+
-      '<td>'+fmt(c.totalEur)+'</td><td>'+fmt(c.last12)+'</td><td>'+fd(c.lastDate)+'</td>'+
+      '<td>'+fmt(c.totalEur)+'</td><td>'+fmt(c.ciroBuYil||0)+'</td><td>'+fd(c.lastDate)+'</td>'+
       '<td><span class="b '+(churnColor[c.churn]||'bgr')+'">'+c.churn+'</span></td>'+
       '<td><span class="b '+(segColor[c.segment]||'bgr')+'">'+c.segment+'</span></td>'+
       '<td>'+c.score+'</td>'+
