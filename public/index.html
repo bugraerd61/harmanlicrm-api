@@ -199,10 +199,10 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
   <div class="mg" id="sessizMetrics"></div>
   <div class="fr">
     <select id="sessizRep" onchange="renderSessiz()"><option value="">Tüm Temsilciler</option></select>
-    <select id="sessizSort" onchange="renderSessiz()"><option value="gun">Sessiz Gün</option><option value="ciro">Toplam Ciro</option><option value="son12">Son 12 Ay</option></select>
+    <select id="sessizSort" onchange="renderSessiz()"><option value="gun">Sessiz Gün</option><option value="ciro">Toplam Ciro</option><option value="son12">Son 12 Ay</option><option value="skor">Skor</option></select>
     <button class="btn btn-g" onclick="exportSessiz()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Sessiz Gün</th><th>Son Alım</th><th>Son Aktivite</th><th>Tahmini Sonraki</th><th>Durum</th><th>Aksiyon</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="sessizBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Sessiz Gün</th><th>Skor</th><th>Son Alım</th><th>Son Aktivite</th><th>Tahmini Sonraki</th><th>Durum</th><th>Aksiyon</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="sessizBody"></tbody></table></div>
 </div>
 
 <!-- KAYIP -->
@@ -1605,7 +1605,7 @@ function renderSessiz(globalQ){
   var sort=document.getElementById('sessizSort').value;
   var q=(globalQ||'').toLowerCase();
   var data=CUSTS.filter(function(c){return c.silentDays>=60&&(!rep||c.rep===rep)&&(!q||(c.name+c.rep+c.sehir).toLowerCase().includes(q));})
-    .sort(function(a,b){return sort==='gun'?b.silentDays-a.silentDays:sort==='ciro'?b.totalEur-a.totalEur:b.last12-a.last12;});
+    .sort(function(a,b){return sort==='gun'?b.silentDays-a.silentDays:sort==='ciro'?b.totalEur-a.totalEur:sort==='skor'?b.score-a.score:b.last12-a.last12;});
   document.getElementById('sessizMetrics').innerHTML=[
     ['Sessiz Müşteri',data.length,'60g+'],
     ['Toplam EUR',fmt(data.reduce(function(s,c){return s+c.totalEur;},0)),'EUR'],
@@ -1616,6 +1616,7 @@ function renderSessiz(globalQ){
     var late=c.nextEst&&c.nextEst<TODAY?'<span class="b br">GECİKTİ</span>':'<span class="b bg">Planlanmadı</span>';
     return '<tr><td>'+c.name+'</td><td>'+c.rep+'</td><td>'+c.sehir+'</td>'+
       '<td style="color:#dc2626;font-weight:700">'+c.silentDays+'g</td>'+
+      '<td>'+c.score+'</td>'+
       '<td>'+fd(c.lastDate)+'</td>'+
       '<td>'+(c.lastAktDate?fd(c.lastAktDate):'-')+'</td>'+
       '<td>'+(c.nextEst?fd(c.nextEst):'-')+'</td>'+
