@@ -896,7 +896,8 @@ function calcScores(){
     var ts=c.teklifSinyal||{}, sc={};
     sc.acikTeklif=c.acikTeklif>=2?25:c.acikTeklif===1?15:0;
     sc.sapma=0; sc.sapmaX=null;
-    if(c.avgGap&&c.silentDays>0){
+    // Sapma sadece DÜZENLİ müşteriler için — en az 3 fatura geçmişi gerekiyor
+    if(c.avgGap&&c.silentDays>0&&c.fatCount>=3){
       var sx=c.silentDays/c.avgGap; sc.sapmaX=+sx.toFixed(1);
       if(sx>=2)sc.sapma=25; else if(sx>=1.5)sc.sapma=15; else if(sx>=1.2)sc.sapma=8;
     }
@@ -906,6 +907,14 @@ function calcScores(){
     sc.dusus=c.yillikTrend==='DUSUS'?10:0;
     sc.totalBonus=Math.round((c.totalEur/maxEur)*10);
     sc.ceza=(c.aktCount>=10&&(ciro6ay[c.vkn]||0)===0)?-5:0;
+    // Aktivite yakınlığı — yakın zamanda temas alınan firmalar listeden aşağı insin
+    sc.aktiviteYakinligi=0;
+    if(c.lastAktDate){
+      var aktGun=daysDiff(c.lastAktDate,TODAY);
+      if(aktGun<=30) sc.aktiviteYakinligi=-15;
+      else if(aktGun<=60) sc.aktiviteYakinligi=-10;
+      else if(aktGun<=90) sc.aktiviteYakinligi=-5;
+    }
     sc.churnBaz=0;
     if(!c.avgGap&&!c.isPotansiyel){
       if(c.silentDays>365)sc.churnBaz=6;
@@ -915,7 +924,7 @@ function calcScores(){
       else sc.churnBaz=4;
     }
     c.scoreComponents=sc;
-    c.score=Math.max(0,Math.min(100,sc.acikTeklif+sc.sapma+sc.ciro12+sc.donusmedi+sc.buyume+sc.dusus+sc.totalBonus+sc.ceza+sc.churnBaz));
+    c.score=Math.max(0,Math.min(100,sc.acikTeklif+sc.sapma+sc.ciro12+sc.donusmedi+sc.buyume+sc.dusus+sc.totalBonus+sc.ceza+sc.aktiviteYakinligi+sc.churnBaz));
   });
 
   // Aksiyon Kategorisi
