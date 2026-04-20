@@ -1480,7 +1480,7 @@ function renderMusteriler(){
   document.getElementById('custMetrics').innerHTML=[
     ['Müşteri',window._custFiltered.length,'adet'],
     ['Toplam EUR',fmt(window._custFiltered.reduce(function(s,c){return s+c.totalEur;},0)),'EUR'],
-    ['Son 12 Ay',fmt(window._custFiltered.reduce(function(s,c){return s+c.last12;},0)),'EUR'],
+    ['Bu Yıl (Oca-Bugün)',fmt(window._custFiltered.reduce(function(s,c){return s+(c.ciroBuYil||0);},0)),'EUR'],
     ['Ort. Churn',Math.round(window._custFiltered.reduce(function(s,c){return s+c.silentDays;},0)/(window._custFiltered.length||1)),'gün']
   ].map(mc).join('');
 }
