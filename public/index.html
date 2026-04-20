@@ -202,7 +202,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="sessizSort" onchange="renderSessiz()"><option value="gun">Sessiz Gün</option><option value="ciro">Toplam Ciro</option><option value="son12">Son 12 Ay</option></select>
     <button class="btn btn-g" onclick="exportSessiz()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Sessiz Gün</th><th>Son Alım</th><th>Tahmini Sonraki</th><th>Durum</th><th>Aksiyon</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="sessizBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Sessiz Gün</th><th>Son Alım</th><th>Son Aktivite</th><th>Tahmini Sonraki</th><th>Durum</th><th>Aksiyon</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="sessizBody"></tbody></table></div>
 </div>
 
 <!-- KAYIP -->
@@ -213,7 +213,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="kayipSek" onchange="renderKayip()"><option value="">Tüm Sektörler</option></select>
     <button class="btn btn-g" onclick="exportKayip()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Son Alım</th><th>Sessiz Gün</th><th>2024 Ciro</th><th>Skor</th><th>Bu Yıl (Oca-Bugün)</th><th>Geçen Yıl (Oca-Bugün)</th><th>Aksiyon</th><th>AI</th></tr></thead><tbody id="kayipBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Son Alım</th><th>Son Aktivite</th><th>Sessiz Gün</th><th>2024 Ciro</th><th>Skor</th><th>Bu Yıl (Oca-Bugün)</th><th>Geçen Yıl (Oca-Bugün)</th><th>Aksiyon</th><th>AI</th></tr></thead><tbody id="kayipBody"></tbody></table></div>
 </div>
 
 
@@ -1113,7 +1113,15 @@ function buildCusts(){
     }
   });
   // TEMSİLCİ ATAMA — MÜŞTERİ/ADAY MÜŞTERİ DOSYASI (D.mst)
-  var normMst = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
+  var normMst = {
+    'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS',
+    'Orçun UZUN':'ORÇUN UZUN',
+    'Uğur Ayana':'UĞUR AYANA',
+    'Uğur AYANA':'UĞUR AYANA',
+    'Haydar Suat Odabaş':'HAYDAR SUAT ODABAŞ',
+    'Haydar Suat ODABAŞ':'HAYDAR SUAT ODABAŞ',
+    'Ali ERASLAN':'ALİ ERASLAN'
+  };
   var sahteMst = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','-Satış çalışanı yok-','']);
   var finalRepMap = {};
   var mstLoaded = D.mst && D.mst.length > 0;
@@ -1271,7 +1279,15 @@ function buildCusts(){
 function addPotansiyelCustomers(){
   if(!D.mst || !D.mst.length) return;
 
-  var normalize = {'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS','Orçun UZUN':'ORÇUN UZUN'};
+  var normalize = {
+    'Alperen Tolgahan BARLAS':'ALPEREN TOLGAHAN BARLAS',
+    'Orçun UZUN':'ORÇUN UZUN',
+    'Uğur Ayana':'UĞUR AYANA',
+    'Uğur AYANA':'UĞUR AYANA',
+    'Haydar Suat Odabaş':'HAYDAR SUAT ODABAŞ',
+    'Haydar Suat ODABAŞ':'HAYDAR SUAT ODABAŞ',
+    'Ali ERASLAN':'ALİ ERASLAN'
+  };
   var sahte = new Set(['BOSS WEB','TRENDYOL','N11','HEPSİBURADA','AMAZON','GİTTİGİDİYOR','-Satış çalışanı yok-','']);
 
   // Sadece mevcut CUSTS VKN'lerini takip et
@@ -1592,6 +1608,7 @@ function renderSessiz(globalQ){
     return '<tr><td>'+c.name+'</td><td>'+c.rep+'</td><td>'+c.sehir+'</td>'+
       '<td style="color:#dc2626;font-weight:700">'+c.silentDays+'g</td>'+
       '<td>'+fd(c.lastDate)+'</td>'+
+      '<td>'+(c.lastAktDate?fd(c.lastAktDate):'-')+'</td>'+
       '<td>'+(c.nextEst?fd(c.nextEst):'-')+'</td>'+
       '<td>'+late+'</td>'+
       '<td><span class="pill-'+(c.actionType==='TELEFON'?'call':c.actionType==='ZİYARET'?'visit':c.actionType==='EMAIL'?'mail':'teklif')+'">'+c.actionType+'</span></td>'+
@@ -1620,6 +1637,7 @@ function renderKayip(globalQ){
     }).reduce(function(s,r){return s+(parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0);},0);
     return '<tr><td>'+c.name+'</td><td>'+c.rep+'</td><td>'+c.sek+'</td><td>'+c.sehir+'</td>'+
       '<td>'+fd(c.lastDate)+'</td>'+
+      '<td>'+(c.lastAktDate?fd(c.lastAktDate):'-')+'</td>'+
       '<td style="color:#dc2626;font-weight:700">'+c.silentDays+'g</td>'+
       '<td>'+(ciro2024?fmt(ciro2024):'-')+'</td>'+
       '<td>'+c.score+'</td>'+
