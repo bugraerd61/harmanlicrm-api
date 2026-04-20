@@ -1453,11 +1453,11 @@ function renderAksiyon(globalQ){
   }).join('');
   var tumGercek = CUSTS.filter(function(c){ return c.hasFatura && !c.isPotansiyel; });
   var totCiro = tumGercek.reduce(function(s,c){return s+c.totalEur;},0);
-  var totSon12 = tumGercek.reduce(function(s,c){return s+c.last12;},0);
+  var totBuYil = tumGercek.reduce(function(s,c){return s+(c.ciroBuYil||0);},0);
   document.getElementById('aksMetrics').innerHTML=[
     ['Aksiyon Listesi',data.length,'müşteri'],
     ['Toplam Ciro (2024-Bugün)',fmt(totCiro),'EUR'],
-    ['Son 12 Ay Ciro',fmt(totSon12),'EUR'],
+    ['Bu Yıl Ciro (Oca-Bugün)',fmt(totBuYil),'EUR'],
     ['Açık Teklif',data.filter(function(c){return c.acikTeklif>0;}).length,'müşteri'],
     ['Kritik Churn',data.filter(function(c){return c.churn==='Kritik';}).length,'müşteri']
   ].map(mc).join('');
