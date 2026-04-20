@@ -1623,6 +1623,8 @@ function renderKayip(globalQ){
       '<td style="color:#dc2626;font-weight:700">'+c.silentDays+'g</td>'+
       '<td>'+(ciro2024?fmt(ciro2024):'-')+'</td>'+
       '<td>'+c.score+'</td>'+
+      '<td>'+(c.ciroBuYil>0 ? fmt(c.ciroBuYil)+' €' : '-')+'</td>'+
+      '<td style="color:#64748b">'+(c.ciroGecenYilAyniDonem>0 ? fmt(c.ciroGecenYilAyniDonem)+' €' : '-')+'</td>'+
       '<td><span class="pill-'+(c.actionType==='TELEFON'?'call':'visit')+'">'+c.actionType+'</span></td>'+
       '<td><button class="btn" style="padding:2px 7px;font-size:11px" onclick="openAI(\''+c.vkn+'\')">AI</button></td></tr>';
   }).join('');
