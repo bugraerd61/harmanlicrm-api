@@ -855,15 +855,15 @@ function calcScores(){
   var gecenYilBas = new Date(TODAY.getFullYear()-1, 0, 1);
   var gecenYilAyniGun = new Date(TODAY.getFullYear()-1, TODAY.getMonth(), TODAY.getDate());
   var ciroBuYilMap = {}, ciroGecenYilMap = {};
-  D.fat.forEach(function(r){
+  D.sat.forEach(function(r){
     var v = normVKN(r['VKN']);
     if(!v || v === HARMANLI_VKN) return;
-    var eur = parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
-    if(!eur) return;
-    var dt = parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');
+    var matrah = parseFloat(r['Matrah_Eur']||0)||0;
+    if(!matrah) return;
+    var dt = parseDate(r['Kayıt tarihi']||'');
     if(isNaN(dt)) return;
-    if(dt >= buYilBas && dt <= TODAY) ciroBuYilMap[v] = (ciroBuYilMap[v]||0) + eur;
-    if(dt >= gecenYilBas && dt <= gecenYilAyniGun) ciroGecenYilMap[v] = (ciroGecenYilMap[v]||0) + eur;
+    if(dt >= buYilBas && dt <= TODAY) ciroBuYilMap[v] = (ciroBuYilMap[v]||0) + matrah;
+    if(dt >= gecenYilBas && dt <= gecenYilAyniGun) ciroGecenYilMap[v] = (ciroGecenYilMap[v]||0) + matrah;
   });
   CUSTS.forEach(function(c){
     c.ciroBuYil = ciroBuYilMap[c.vkn] || 0;
@@ -885,10 +885,10 @@ function calcScores(){
 
   var d6ay = new Date(TODAY); d6ay.setMonth(d6ay.getMonth()-6);
   var ciro6ay = {};
-  D.fat.forEach(function(r){
+  D.sat.forEach(function(r){
     var v=normVKN(r['VKN']); if(!v||v===HARMANLI_VKN) return;
-    var dt=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');
-    var e=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
+    var dt=parseDate(r['Kayıt tarihi']||'');
+    var e=parseFloat(r['Matrah_Eur']||0)||0;
     if(dt&&dt>=d6ay) ciro6ay[v]=(ciro6ay[v]||0)+e;
   });
 
@@ -1015,9 +1015,7 @@ function buildCusts(){
       };
     }
     var m=map[v];
-    var eur=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
     var bk=parseFloat(r['BrutKarEur'])||0;
-    m.totalEur+=eur;
     m.brutKar+=bk;
     m.fatCount++;
     // Şehir, sektör, grup - boş olmayanı al
@@ -1040,14 +1038,29 @@ function buildCusts(){
           var repSon = r['Temsilci']||r['Satış çalışanı adı']||r['Müşteri Temsilcisi']||r['SlpName']||'';
           if(repSon) m.rep = repSon;
         }
-        var yr12=new Date(TODAY);yr12.setFullYear(yr12.getFullYear()-1);
-        if(d>=yr12) m.last12+=eur;
-        var yr1ay=new Date(TODAY);yr1ay.setMonth(yr1ay.getMonth()-1);
-        if(d>=yr1ay) m.last1ay=(m.last1ay||0)+eur;
       }
     }
     var cat=r['KalemGrup']||r['Grup']||'';
     if(cat) m.cats.add(cat);
+  });
+  // D.sat — Matrah_Eur net (satış + iade tek kaynakta)
+  D.sat.forEach(function(r){
+    var v=normVKN(r['VKN']);
+    if(!v||v===HARMANLI_VKN) return;
+    if(!map[v]) return;
+    var m=map[v];
+    var matrah=parseFloat(r['Matrah_Eur']||0)||0;
+    m.totalEur+=matrah;
+    var dt=r['Kayıt tarihi'];
+    if(dt){
+      var d=parseDate(dt);
+      if(!isNaN(d)){
+        var yr12=new Date(TODAY);yr12.setFullYear(yr12.getFullYear()-1);
+        if(d>=yr12) m.last12+=matrah;
+        var yr1ay=new Date(TODAY);yr1ay.setMonth(yr1ay.getMonth()-1);
+        if(d>=yr1ay) m.last1ay+=matrah;
+      }
+    }
   });
   // Teklif sayımı - belge numarasına göre tekil say + temsilci güncelle
   var acikTeklifBelge = {};
