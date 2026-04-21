@@ -177,7 +177,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="custSeg" onchange="renderMusteriler()"><option value="">Tüm Segmentler</option><option>Şampiyon</option><option>Sadık</option><option>Potansiyel</option><option>Riskli</option></select>
     <button class="btn btn-g" onclick="exportMusteriler()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>Bu Yıl (Oca-Bugün)</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>CLV</th><th>Bu Yıl (Oca-Bugün)</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
   <div class="pg" id="custPg"></div>
 </div>
 
@@ -1295,6 +1295,31 @@ function buildCusts(){
       nextEst.setDate(nextEst.getDate()+c.avgGap);
       c.nextEst=nextEst;
     } else {c.avgGap=null;c.nextEst=null;}
+
+    // Customer Lifetime Value (Stanford GSB formülü)
+    // CLV = geçmiş ciro + (yıllık ortalama × beklenen kalan ömür × churn faktörü)
+    if(c.dates && c.dates.length > 0 && c.totalEur > 0){
+      var ilkAlim = c.dates.slice().sort(function(a,b){return a-b;})[0];
+      var musteriYasiYil = Math.max(daysDiff(ilkAlim, TODAY) / 365, 0.5);
+      var yillikOrtalama = c.totalEur / musteriYasiYil;
+      var beklenenKalanOmur = 5; // yıl
+      // Churn faktörü — sessiz günlere göre gelecek ihtimali
+      var churnFaktoru;
+      if(c.silentDays <= 90) churnFaktoru = 1.0;
+      else if(c.silentDays <= 180) churnFaktoru = 0.7;
+      else if(c.silentDays <= 365) churnFaktoru = 0.4;
+      else churnFaktoru = 0.1;
+      var gelecekDeger = yillikOrtalama * beklenenKalanOmur * churnFaktoru;
+      c.clv = Math.round(c.totalEur + gelecekDeger);
+      c.clvGelecek = Math.round(gelecekDeger);
+      c.musteriYasiYil = +musteriYasiYil.toFixed(1);
+      c.yillikOrtalamaCiro = Math.round(yillikOrtalama);
+    } else {
+      c.clv = 0;
+      c.clvGelecek = 0;
+      c.musteriYasiYil = null;
+      c.yillikOrtalamaCiro = 0;
+    }
   });
 }
 
@@ -1570,7 +1595,9 @@ function renderCustPage(){
   document.getElementById('custBody').innerHTML=page.map(function(c){
     return '<tr><td><strong>'+c.name+'</strong><br><span style="font-size:10px;color:#94a3b8">'+c.vkn+'</span></td>'+
       '<td>'+c.rep+'</td><td>'+c.sek+'</td><td>'+c.sehir+'</td>'+
-      '<td>'+fmt(c.totalEur)+'</td><td>'+fmt(c.ciroBuYil||0)+'</td><td>'+fd(c.lastDate)+'</td>'+
+      '<td>'+fmt(c.totalEur)+'</td>'+
+      '<td title="Geçmiş: '+fmt(c.totalEur)+' + Gelecek tahmin: '+fmt(c.clvGelecek||0)+'"><strong>'+fmt(c.clv||0)+'</strong></td>'+
+      '<td>'+fmt(c.ciroBuYil||0)+'</td><td>'+fd(c.lastDate)+'</td>'+
       '<td><span class="b '+(churnColor[c.churn]||'bgr')+'">'+c.churn+'</span></td>'+
       '<td><span class="b '+(segColor[c.segment]||'bgr')+'">'+c.segment+'</span></td>'+
       '<td>'+c.score+'</td>'+
@@ -2676,7 +2703,7 @@ function exportAksiyonExcel(){
   console.log('Excel indirildi: ' + rows.length + ' firma');
 }
 function exportAksiyon(){exportTable(CUSTS.filter(function(c){return c.silentDays>30;}).sort(function(a,b){return b.score-a.score;}).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType,Kategori:c.actionCategory||'',NedenSimdi:c.nedenSimdi||'',SonAlim:fd(c.lastDate),SonZiyaret:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Siklik:c.avgGap?Math.round(c.avgGap)+' gün':'-',AcikTeklif:c.acikTeklif};}), 'aksiyon');}
-function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,TotalEUR:Math.round(c.totalEur),Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Skor:c.score};}), 'musteriler');}
+function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,TotalEUR:Math.round(c.totalEur),CLV:c.clv||0,CLV_Gelecek:c.clvGelecek||0,YillikOrtalama:c.yillikOrtalamaCiro||0,MusteriYasiYil:c.musteriYasiYil||'',Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Skor:c.score};}), 'musteriler');}
 function exportRFM(){exportTable(CUSTS.map(function(c){return {Firma:c.name,R:c.rfmR,F:c.rfmF,M:Math.round(c.totalEur),RFMSkor:c.rfmScore,Segment:c.segment};}), 'rfm');}
 function exportSessiz(){exportTable(CUSTS.filter(function(c){return c.silentDays>=60;}).map(function(c){var late=''; if(c.nextEst){var lateDays=daysDiff(c.nextEst,TODAY); late=lateDays>0?('Gecikti '+lateDays+'g'):('Beklenti '+(-lateDays)+'g');} return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,SessizGun:c.silentDays,Skor:c.score,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',TahminiSonraki:c.nextEst?fd(c.nextEst):'',Durum:late,Aksiyon:c.actionType,AcikTeklif:c.acikTeklif||0};}), 'sessiz');}
 function exportKayip(){exportTable(CUSTS.filter(function(c){return c.silentDays>365;}).sort(function(a,b){return b.score-a.score;}).map(function(c){var ciro2024=0; (c.dates||[]).forEach(function(d,i){if(d && d.getFullYear()===2024 && c.fatEurs){ciro2024+=c.fatEurs[i]||0;}}); return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Ciro2024:Math.round(ciro2024||0),Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType};}), 'kayip');}
