@@ -892,12 +892,16 @@ function calcScores(){
     if(dt&&dt>=d6ay) ciro6ay[v]=(ciro6ay[v]||0)+e;
   });
 
+  // Kritik hesap eşiği: top %20 ciro (son 12 ay)
+  var sortedL12=CUSTS.map(function(c){return c.last12;}).filter(function(x){return x>0;}).sort(function(a,b){return b-a;});
+  var top20Threshold=sortedL12.length>0 ? sortedL12[Math.floor(sortedL12.length*0.2)] : 0;
+
   CUSTS.forEach(function(c){
     var ts=c.teklifSinyal||{}, sc={};
     sc.acikTeklif=c.acikTeklif>=2?25:c.acikTeklif===1?15:0;
     sc.sapma=0; sc.sapmaX=null;
-    // Sapma sadece DÜZENLİ müşteriler için — en az 3 fatura geçmişi gerekiyor
-    if(c.avgGap&&c.silentDays>0&&c.fatCount>=3){
+    // Sapma sadece DÜZENLİ müşteriler için — en az 2 ücretli fatura gerekiyor
+    if(c.avgGap&&c.silentDays>0&&c.ucretliFatCount>=2){
       var sx=c.silentDays/c.avgGap; sc.sapmaX=+sx.toFixed(1);
       if(sx>=2)sc.sapma=25; else if(sx>=1.5)sc.sapma=15; else if(sx>=1.2)sc.sapma=8;
     }
@@ -907,13 +911,16 @@ function calcScores(){
     sc.dusus=c.yillikTrend==='DUSUS'?10:0;
     sc.totalBonus=Math.round((c.totalEur/maxEur)*10);
     sc.ceza=(c.aktCount>=10&&(ciro6ay[c.vkn]||0)===0)?-5:0;
-    // Aktivite yakınlığı — yakın zamanda temas alınan firmalar listeden aşağı insin
+    // Kritik hesap mı? (4 kriterden biri yeterli)
+    var isCritical = (c.acikTeklif>=1) || (c.last12>=top20Threshold && top20Threshold>0) || (c.segment==='Şampiyon') || (c.hasNumune);
+    c.isCritical = isCritical;
+    // Aktivite yakınlığı — yakın zamanda temas alınan firmalar listeden aşağı insin (kritik hesaplarda yarı ceza)
     sc.aktiviteYakinligi=0;
     if(c.lastAktDate){
       var aktGun=daysDiff(c.lastAktDate,TODAY);
-      if(aktGun<=30) sc.aktiviteYakinligi=-15;
-      else if(aktGun<=60) sc.aktiviteYakinligi=-10;
-      else if(aktGun<=90) sc.aktiviteYakinligi=-5;
+      if(aktGun<=30) sc.aktiviteYakinligi=isCritical?-7:-15;
+      else if(aktGun<=60) sc.aktiviteYakinligi=isCritical?-5:-10;
+      else if(aktGun<=90) sc.aktiviteYakinligi=isCritical?-2:-5;
     }
     sc.churnBaz=0;
     if(!c.avgGap&&!c.isPotansiyel){
@@ -1013,6 +1020,8 @@ function buildCusts(){
         last1ay:0,
         brutKar:0,
         fatCount:0,
+        ucretliFatCount:0,
+        hasNumune:false,
         lastDate:null,
         dates:[],
         cats:new Set(),
@@ -1027,6 +1036,11 @@ function buildCusts(){
     var bk=parseFloat(r['BrutKarEur'])||0;
     m.brutKar+=bk;
     m.fatCount++;
+    // Ücretli fatura sayısı (Sapma hesabında kullanılıyor)
+    var fatEurVal=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
+    if(fatEurVal>0) m.ucretliFatCount++;
+    // Numune işareti (kritik hesap kriterlerinden biri)
+    if(String(r['Siparis Tipi']||'').trim().toLowerCase()==='numune') m.hasNumune=true;
     // Şehir, sektör, grup - boş olmayanı al
     var sek = r['Sektör adı']||r['IndName']||'';
     var grp = r['Grup adı']||r['GroupName']||'';
@@ -1391,6 +1405,8 @@ function addPotansiyelCustomers(){
       last1ay: 0,
       brutKar: 0,
       fatCount: 0,
+      ucretliFatCount: 0,
+      hasNumune: false,
       lastDate: null,
       lastAktDate: null,
       lastZiyaretDate: null,
