@@ -2334,12 +2334,12 @@ function getCrossSellOnerileri(c, maxOneri){
   var key = c.grp + '||' + c.sek;
   var firmaSayisi = GRUP_SEKTOR_FIRMA[key] ? GRUP_SEKTOR_FIRMA[key].size : 0;
 
-  // 3+ firma yoksa sektör bazlı bak
+  // 5+ firma yoksa sektör bazlı bak (Sektör + Grup birlikte yeterli değilse Sektör'e fallback)
   var aramaKey = key;
-  if(firmaSayisi < 3){
+  if(firmaSayisi < 5){
     // Sadece sektöre bak
     var sektorKey = Object.keys(GRUP_SEKTOR_FIRMA).find(function(k){
-      return k.split('||')[1] === c.sek && GRUP_SEKTOR_FIRMA[k].size >= 3;
+      return k.split('||')[1] === c.sek && GRUP_SEKTOR_FIRMA[k].size >= 5;
     });
     if(sektorKey){ aramaKey = sektorKey; firmaSayisi = GRUP_SEKTOR_FIRMA[sektorKey].size; }
     else return [];
@@ -2360,7 +2360,7 @@ function getCrossSellOnerileri(c, maxOneri){
   return Object.entries(urunler)
     .filter(function(e){
       var kod = e[0].split('|||')[0];
-      return !musteriUrunKodlari.has(kod) && e[1].size >= 2; // en az 2 firma alıyor olmalı
+      return !musteriUrunKodlari.has(kod) && e[1].size >= 5; // segmentin en az 5 firması almış olmalı
     })
     .map(function(e){
       var parts = e[0].split('|||');
