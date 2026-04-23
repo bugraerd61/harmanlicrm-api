@@ -177,7 +177,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <select id="custSeg" onchange="renderMusteriler()"><option value="">Tüm Segmentler</option><option>Şampiyon</option><option>Sadık</option><option>Potansiyel</option><option>Riskli</option></select>
     <button class="btn btn-g" onclick="exportMusteriler()">Excel</button>
   </div>
-  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>CLV</th><th>Bu Yıl (Oca-Bugün)</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Firma</th><th>Temsilci</th><th>Sektör</th><th>Şehir</th><th>Toplam EUR</th><th>CLV</th><th>Bu Yıl (Oca-Bugün)</th><th>Son Alım</th><th>Churn</th><th>Segment</th><th>Davranış</th><th>Skor</th><th>AI</th></tr></thead><tbody id="custBody"></tbody></table></div>
   <div class="pg" id="custPg"></div>
 </div>
 
@@ -1320,6 +1320,49 @@ function buildCusts(){
       c.musteriYasiYil = null;
       c.yillikOrtalamaCiro = 0;
     }
+
+    // === Davranışsal Etiketler (Stanford GSB Customer Segmentation) ===
+    c.davranisEtiketleri = [];
+
+    // 1. Tek Ürün Müşterisi vs Çeşitlilik Avcısı
+    if(c.catCount === 1){
+      c.davranisEtiketleri.push('Tek Ürün');
+    } else if(c.catCount >= 5){
+      c.davranisEtiketleri.push('Çeşitlilik Avcısı');
+    }
+
+    // 2. Düzenli vs Kesik Kesik (alım periyodunun istikrarı)
+    if(c.dates && c.dates.length >= 3){
+      var sortedD = c.dates.slice().sort(function(a,b){return a-b;});
+      var gapsArr = [];
+      for(var gi=1; gi<sortedD.length; gi++) gapsArr.push(daysDiff(sortedD[gi-1], sortedD[gi]));
+      var gapAvg = gapsArr.reduce(function(s,x){return s+x;},0) / gapsArr.length;
+      var gapVar = gapsArr.reduce(function(s,x){return s + Math.pow(x-gapAvg, 2);},0) / gapsArr.length;
+      var gapStd = Math.sqrt(gapVar);
+      var cv = gapAvg > 0 ? gapStd/gapAvg : 0;  // coefficient of variation
+      if(cv < 0.4 && gapsArr.length >= 4) c.davranisEtiketleri.push('Düzenli');
+      else if(cv > 1.0) c.davranisEtiketleri.push('Kesik Kesik');
+    }
+
+    // 3. Mevsimsel (alımlar belirli aylarda yoğunlaşıyor mu?)
+    if(c.dates && c.dates.length >= 4){
+      var ayCount = {};
+      c.dates.forEach(function(d){ if(d){ var m = d.getMonth(); ayCount[m] = (ayCount[m]||0)+1; }});
+      var maxAyCount = Math.max.apply(null, Object.values(ayCount));
+      var dolu_ay = Object.keys(ayCount).length;
+      // Eğer alımların >50%'si 1-3 ayda yoğunlaşıyorsa mevsimsel
+      if(dolu_ay <= 4 && maxAyCount / c.dates.length > 0.4) c.davranisEtiketleri.push('Mevsimsel');
+    }
+
+    // 4. Büyüyen vs Küçülen (yıllık trend zaten hesaplı: yillikTrend)
+    if(c.yillikTrend === 'ARTIS') c.davranisEtiketleri.push('Büyüyen');
+    else if(c.yillikTrend === 'DUSUS') c.davranisEtiketleri.push('Küçülen');
+
+    // 5. Numune Aşamasında
+    if(c.hasNumune) c.davranisEtiketleri.push('Numune');
+
+    // 6. Açık Teklifte
+    if(c.acikTeklif >= 1) c.davranisEtiketleri.push('Açık Teklif');
   });
 }
 
@@ -1593,6 +1636,11 @@ function renderCustPage(){
   var segColor={Şampiyon:'bt',Sadık:'bg',Potansiyel:'bb',Riskli:'br'};
   var churnColor={Aktif:'bg',Stabil:'bb',Riskli:'ba',Kritik:'br',Potansiyel:'bp'};
   document.getElementById('custBody').innerHTML=page.map(function(c){
+    var tagColors = {'Tek Ürün':'#94a3b8','Çeşitlilik Avcısı':'#7c3aed','Düzenli':'#10b981','Kesik Kesik':'#f59e0b','Mevsimsel':'#06b6d4','Büyüyen':'#22c55e','Küçülen':'#ef4444','Numune':'#ec4899','Açık Teklif':'#3b82f6'};
+    var davranisHTML = (c.davranisEtiketleri||[]).map(function(t){
+      return '<span style="display:inline-block;padding:1px 6px;margin:1px;border-radius:8px;background:'+(tagColors[t]||'#999')+';color:#fff;font-size:9px;white-space:nowrap">'+t+'</span>';
+    }).join(' ');
+
     return '<tr><td><strong>'+c.name+'</strong><br><span style="font-size:10px;color:#94a3b8">'+c.vkn+'</span></td>'+
       '<td>'+c.rep+'</td><td>'+c.sek+'</td><td>'+c.sehir+'</td>'+
       '<td>'+fmt(c.totalEur)+'</td>'+
@@ -1600,6 +1648,7 @@ function renderCustPage(){
       '<td>'+fmt(c.ciroBuYil||0)+'</td><td>'+fd(c.lastDate)+'</td>'+
       '<td><span class="b '+(churnColor[c.churn]||'bgr')+'">'+c.churn+'</span></td>'+
       '<td><span class="b '+(segColor[c.segment]||'bgr')+'">'+c.segment+'</span></td>'+
+      '<td style="max-width:160px">'+davranisHTML+'</td>'+
       '<td>'+c.score+'</td>'+
       '<td><button class="btn" style="padding:2px 7px;font-size:11px" onclick="openAI(\''+c.vkn+'\')">AI</button></td></tr>';
   }).join('');
@@ -2703,7 +2752,7 @@ function exportAksiyonExcel(){
   console.log('Excel indirildi: ' + rows.length + ' firma');
 }
 function exportAksiyon(){exportTable(CUSTS.filter(function(c){return c.silentDays>30;}).sort(function(a,b){return b.score-a.score;}).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType,Kategori:c.actionCategory||'',NedenSimdi:c.nedenSimdi||'',SonAlim:fd(c.lastDate),SonZiyaret:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Siklik:c.avgGap?Math.round(c.avgGap)+' gün':'-',AcikTeklif:c.acikTeklif};}), 'aksiyon');}
-function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,TotalEUR:Math.round(c.totalEur),CLV:c.clv||0,CLV_Gelecek:c.clvGelecek||0,YillikOrtalama:c.yillikOrtalamaCiro||0,MusteriYasiYil:c.musteriYasiYil||'',Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Skor:c.score};}), 'musteriler');}
+function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,TotalEUR:Math.round(c.totalEur),CLV:c.clv||0,CLV_Gelecek:c.clvGelecek||0,YillikOrtalama:c.yillikOrtalamaCiro||0,MusteriYasiYil:c.musteriYasiYil||'',Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Davranis:(c.davranisEtiketleri||[]).join(', '),Skor:c.score};}), 'musteriler');}
 function exportRFM(){exportTable(CUSTS.map(function(c){return {Firma:c.name,R:c.rfmR,F:c.rfmF,M:Math.round(c.totalEur),RFMSkor:c.rfmScore,Segment:c.segment};}), 'rfm');}
 function exportSessiz(){exportTable(CUSTS.filter(function(c){return c.silentDays>=60;}).map(function(c){var late=''; if(c.nextEst){var lateDays=daysDiff(c.nextEst,TODAY); late=lateDays>0?('Gecikti '+lateDays+'g'):('Beklenti '+(-lateDays)+'g');} return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,SessizGun:c.silentDays,Skor:c.score,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',TahminiSonraki:c.nextEst?fd(c.nextEst):'',Durum:late,Aksiyon:c.actionType,AcikTeklif:c.acikTeklif||0};}), 'sessiz');}
 function exportKayip(){exportTable(CUSTS.filter(function(c){return c.silentDays>365;}).sort(function(a,b){return b.score-a.score;}).map(function(c){var ciro2024=0; (c.dates||[]).forEach(function(d,i){if(d && d.getFullYear()===2024 && c.fatEurs){ciro2024+=c.fatEurs[i]||0;}}); return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Ciro2024:Math.round(ciro2024||0),Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType};}), 'kayip');}
