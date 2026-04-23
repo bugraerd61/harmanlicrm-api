@@ -85,6 +85,29 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
 .pill-visit{background:#dcfce7;color:#166534;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
 .pill-teklif{background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
 .pill-potansiyel{background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
+/* NBA (Next-Best-Action) */
+.nba-pill{display:inline-block;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap}
+.nba-kirmizi{background:#fee2e2;color:#991b1b}
+.nba-turuncu{background:#fed7aa;color:#9a3412}
+.nba-sari{background:#fef3c7;color:#854d0e}
+.nba-yesil{background:#dcfce7;color:#166534}
+.nba-mor{background:#f3e8ff;color:#6b21a8}
+.nba-mavi{background:#dbeafe;color:#1e40af}
+.nba-row-kirmizi{border-left:3px solid #dc2626}
+.nba-row-turuncu{border-left:3px solid #ea580c}
+.nba-row-sari{border-left:3px solid #ca8a04}
+.nba-row-yesil{border-left:3px solid #16a34a}
+.nba-row-mor{border-left:3px solid #9333ea}
+.nba-row-mavi{border-left:3px solid #2563eb}
+.nba-neden{color:var(--text2);font-size:11px;margin-top:3px;max-width:320px;line-height:1.4}
+.nba-ikincil{font-size:11px;color:var(--text2);margin-bottom:3px;display:flex;gap:6px;align-items:flex-start}
+.nba-ikincil-label{font-size:9px;padding:1px 5px;border-radius:3px;background:var(--bg3);color:var(--text2);flex-shrink:0;margin-top:2px}
+.nba-ikincil-neden{color:var(--text3);font-size:10px}
+.nba-trend{font-size:10px;padding:2px 6px;border-radius:3px;display:inline-block}
+.nba-trend-ARTIS{background:#dcfce7;color:#166534}
+.nba-trend-DUSUS{background:#fee2e2;color:#991b1b}
+.nba-trend-STABIL{background:var(--bg3);color:var(--text2)}
+.nba-trend-YENI{background:#dbeafe;color:#1e40af}
 .prog{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:5px}
 .pf{height:100%;background:var(--acc);border-radius:2px;transition:width .3s}
 .db-card{background:white;border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
@@ -135,6 +158,7 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
 
 <div class="tabs">
   <button class="tab active" onclick="sw('aksiyon')">🎯 Aksiyon</button>
+  <button class="tab" onclick="sw('nba')">⚡ NBA</button>
   <button class="tab" onclick="sw('musteriler')">👥 Müşteriler</button>
   <button class="tab" onclick="sw('rfm')">📊 RFM</button>
   <button class="tab" onclick="sw('sessiz')">⏸ Sessiz</button>
@@ -164,6 +188,31 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <button class="btn btn-g" onclick="exportAksiyon()">Excel</button>
   </div>
   <div class="tw"><table><thead><tr><th>#</th><th>Firma</th><th>Temsilci</th><th>Şehir</th><th>Skor</th><th>Bu Yıl (Oca-Bugün)</th><th>Geçen Yıl (Oca-Bugün)</th><th>Aksiyon</th><th>Kategori</th><th>Neden Şimdi?</th><th>Son Alım</th><th>Son Ziyaret</th><th>Sessiz</th><th>Sıklık</th><th>Açık Teklif</th><th>AI</th></tr></thead><tbody id="aksBody"></tbody></table></div>
+</div>
+
+<!-- NBA / GÜNLÜK AKSİYON -->
+<div id="p-nba" class="panel">
+  <div class="mg" id="nbaMetrics"></div>
+  <div class="fr">
+    <select id="nbaRenk" onchange="renderNBA()">
+      <option value="">Tüm Öncelikler</option>
+      <option value="kirmizi">🔴 Acil (bugün)</option>
+      <option value="turuncu">🟠 Bu hafta</option>
+      <option value="sari">🟡 Bu ay</option>
+      <option value="yesil">🟢 Fırsat</option>
+      <option value="mor">🟣 Kayıp</option>
+      <option value="mavi">🔵 Genel takip</option>
+    </select>
+    <select id="nbaAksiyon" onchange="renderNBA()"><option value="">Tüm Aksiyonlar</option></select>
+    <select id="nbaRep" onchange="renderNBA()"><option value="">Tüm Temsilciler</option></select>
+    <input type="text" id="nbaSearch" placeholder="Firma ara..." oninput="renderNBA()">
+    <button class="btn btn-g" onclick="exportNBA()">Excel</button>
+  </div>
+  <div class="tw"><table><thead><tr>
+    <th>Firma</th><th>Temsilci</th><th>Sektör / Grup</th><th>Şehir</th>
+    <th>Fat.</th><th>Son 12 Ay €</th><th>Sessiz Gün</th><th>Trend</th>
+    <th>ÖNCELİK + Neden</th><th>İkincil Aksiyonlar</th>
+  </tr></thead><tbody id="nbaBody"></tbody></table></div>
 </div>
 
 <!-- MÜŞTERİLER -->
@@ -610,6 +659,7 @@ function sw(id){
   var tabs = document.querySelectorAll('.tab');
   tabs.forEach(function(t){if(t.textContent.toLowerCase().includes(id.substring(0,4).toLowerCase()))t.classList.add('active');});
   if(id==='db') loadDBList();
+  if(id==='nba') renderNBA();
   if(id==='crosssell') renderCrossSellTab();
   if(id==='upsell') renderUpsellTab();
   if(id==='teklifanaliz') renderTeklifAnaliz();
@@ -974,9 +1024,11 @@ function buildAll(){
   buildCusts();
   addPotansiyelCustomers();
   calcScores();
+  calcNBA();
   buildCrossSell();
   populateFilters();
   renderAksiyon();
+  renderNBA();
   renderMusteriler();
   renderRFM();
   renderSessiz();
@@ -1364,6 +1416,228 @@ function buildCusts(){
     // 6. Açık Teklifte
     if(c.acikTeklif >= 1) c.davranisEtiketleri.push('Açık Teklif');
   });
+}
+
+// ===== NBA (Next-Best-Action) MOTORU =====
+// Her aktif müşteri için: 1 öncelik + 2 ikincil aksiyon + gerekçe
+// Öncelik sırası: sıcak fırsat önce (gelir eylemi), sonra risk, sonra genel takip
+function calcNBA(){
+  // Aksiyon tanımları: kod, etiket, renk, tetik fonksiyonu, gerekçe fonksiyonu
+  // Renk: kirmizi=acil, turuncu=bu hafta, sari=bu ay, yesil=fırsat, mor=kayıp, mavi=genel
+  var RULES = [
+    // 🔴 ACİL — Sıcak satış fırsatları (gelir eylemi)
+    { kod:'acik_teklif', etiket:'🔴 Açık teklif takip', renk:'kirmizi',
+      tetik:function(c){ return c.acikTeklif >= 2; },
+      neden:function(c){ return c.acikTeklif+' açık teklif bekliyor — sıcak fırsat, bugün kapanmaya odaklan'; } },
+
+    { kod:'acik_teklif_tek', etiket:'🔴 Açık teklif takip', renk:'kirmizi',
+      tetik:function(c){ return c.acikTeklif === 1; },
+      neden:function(c){ return 'Açık teklif bekliyor — dönüşüme yakın olabilir, takip et'; } },
+
+    { kod:'numune', etiket:'🔴 Numune takibi', renk:'kirmizi',
+      tetik:function(c){ return c.hasNumune && c.silentDays >= 30 && c.silentDays <= 180; },
+      neden:function(c){ return 'Numune alındı, '+c.silentDays+' gündür ticari alım yok — karar aşaması'; } },
+
+    // 🟠 BU HAFTA — Kaybediliyor olabilir
+    { kod:'churn', etiket:'🟠 Churn riski - acil', renk:'turuncu',
+      tetik:function(c){ return c.fatCount >= 3 && c.avgGap && c.avgGap < 90 && c.silentDays > 120; },
+      neden:function(c){ return c.silentDays+' gün sessiz, eskiden ~'+Math.round(c.avgGap)+' günde bir alırdı ('+c.fatCount+' fatura) — kayıp riski'; } },
+
+    { kod:'kayip_altin', etiket:'🟠 Kayıp - Altın kayıp', renk:'turuncu',
+      tetik:function(c){ return c.silentDays > 300 && c.totalEur > 5000 && c.last12 < 500; },
+      neden:function(c){ return c.silentDays+' gün sessiz ama geçmişte €'+Math.round(c.totalEur).toLocaleString('tr-TR')+' iş yapıldı — geri kazanım değer'; } },
+
+    // 🟡 BU AY — Orta öncelik
+    { kod:'ikinci_alim', etiket:'🟡 İkinci alım itme', renk:'sari',
+      tetik:function(c){ return c.fatCount === 1 && c.silentDays >= 60 && c.silentDays <= 180; },
+      neden:function(c){ return 'Tek fatura, ilk alımdan '+c.silentDays+' gün geçti — ikinci alım kritik (müşteri kalıcılığı)'; } },
+
+    { kod:'sessiz', etiket:'🟡 Sessiz geri kazanım', renk:'sari',
+      tetik:function(c){ return c.silentDays >= 60 && c.silentDays <= 120 && c.fatCount >= 2; },
+      neden:function(c){ return c.silentDays+' gün sessiz, '+c.fatCount+' fatura geçmişi — nazik bir temas'; } },
+
+    { kod:'kayip_orta', etiket:'🟡 Kayıp - Tek arama dene', renk:'sari',
+      tetik:function(c){ return c.silentDays >= 180 && c.silentDays <= 365 && c.totalEur >= 500 && c.totalEur <= 5000 && c.fatCount >= 2; },
+      neden:function(c){ return c.silentDays+' gün sessiz, orta tutarlı geçmiş (€'+Math.round(c.totalEur).toLocaleString('tr-TR')+') — bir tur arama dene'; } },
+
+    // 🟢 FIRSAT — Büyütme potansiyeli
+    { kod:'onboarding', etiket:'🟢 İlk alım onboarding', renk:'yesil',
+      tetik:function(c){ return c.fatCount <= 2 && c.silentDays <= 45; },
+      neden:function(c){ return 'Yeni müşteri ('+c.fatCount+' fatura, son '+c.silentDays+' gün) — onboarding ve ilişki kurulumu'; } },
+
+    { kod:'teklif_haz', etiket:'🟢 Teklif hazırla', renk:'yesil',
+      tetik:function(c){ return c.aktCount >= 2 && (!c.acikTeklif || c.acikTeklif === 0) && c.silentDays > 30; },
+      neden:function(c){ return 'Aktivite var ('+c.aktCount+') ama açık teklif yok — teklif zamanı'; } },
+
+    { kod:'crosssell', etiket:'🟢 Cross-sell fırsatı', renk:'yesil',
+      tetik:function(c){ return c.catCount && c.catCount <= 2 && c.fatCount >= 3 && c.silentDays <= 90; },
+      neden:function(c){ return 'Sadece '+c.catCount+' kategori alıyor ('+c.fatCount+' fatura) — çeşitlilik fırsatı'; } },
+
+    // 🔵 GENEL — Düşük öncelik, takip
+    { kod:'yeni_urun', etiket:'🔵 Yeni ürün tanıtımı', renk:'mavi',
+      tetik:function(c){ return ((c.catCount && c.catCount >= 5) || c.yillikTrend === 'ARTIS') && c.silentDays <= 60; },
+      neden:function(c){ 
+        if(c.catCount >= 5) return c.catCount+' farklı kategori alan çeşitlilik müşterisi — yeni ürünlere açık';
+        return 'Büyüyen trend, son '+c.silentDays+' gün — yeni ürün için uygun zemin';
+      } },
+
+    // 🟣 KAYIP — Odak dışı
+    { kod:'kayip_odak_disi', etiket:'🟣 Kayıp - Odak dışı', renk:'mor',
+      tetik:function(c){ return c.silentDays > 300 && c.fatCount <= 2 && c.totalEur < 500; },
+      neden:function(c){ return c.silentDays+' gün sessiz, küçük geçmiş (€'+Math.round(c.totalEur)+') — mail listesine bırak, telefon zaman kaybı'; } },
+
+    // 🔵 GENEL (devam)
+    { kod:'ziyaret', etiket:'🔵 Ziyaret planla', renk:'mavi',
+      tetik:function(c){ 
+        if(c.silentDays > 180) return false;
+        var lastAktGun = c.lastAktDate ? daysDiff(c.lastAktDate, TODAY) : 9999;
+        return lastAktGun > 60;
+      },
+      neden:function(c){ 
+        var g = c.lastAktDate ? daysDiff(c.lastAktDate, TODAY) : null;
+        return g ? 'Son aktivite '+g+' gün önce — yüz yüze temas zamanı' : 'Hiç aktivite kaydı yok — tanışma ziyareti';
+      } },
+
+    { kod:'telefon', etiket:'🔵 Telefon et', renk:'mavi',
+      tetik:function(c){ return (c.aktCount||0) <= 3 && c.silentDays <= 180; },
+      neden:function(c){ return 'Düşük temas ('+(c.aktCount||0)+' aktivite) — kısa bir telefon faydalı'; } },
+  ];
+
+  CUSTS.forEach(function(c){
+    if(c.isPotansiyel) { c.nba = null; return; } // Potansiyel için NBA yok, onun kendi akışı var
+    if(!c.fatCount || c.fatCount === 0) { c.nba = null; return; } // Hiç faturası olmayan aktif görünmez
+
+    var eslesenler = [];
+    for(var i=0; i<RULES.length; i++){
+      try {
+        if(RULES[i].tetik(c)){
+          eslesenler.push({
+            kod: RULES[i].kod,
+            etiket: RULES[i].etiket,
+            renk: RULES[i].renk,
+            neden: RULES[i].neden(c)
+          });
+        }
+      } catch(e){}
+    }
+
+    if(eslesenler.length === 0){
+      eslesenler.push({ kod:'takip', etiket:'🔵 Rutin takip', renk:'mavi',
+        neden:'Belirli bir tetikleyici yok, rutin takipte tut' });
+    }
+
+    c.nba = {
+      oncelik: eslesenler[0],
+      ikincil1: eslesenler[1] || null,
+      ikincil2: eslesenler[2] || null,
+      toplam: eslesenler.length
+    };
+  });
+}
+
+function renderNBA(){
+  var renkF = document.getElementById('nbaRenk') ? document.getElementById('nbaRenk').value : '';
+  var aksF = document.getElementById('nbaAksiyon') ? document.getElementById('nbaAksiyon').value : '';
+  var repF = document.getElementById('nbaRep') ? document.getElementById('nbaRep').value : '';
+  var qF = document.getElementById('nbaSearch') ? document.getElementById('nbaSearch').value.toLowerCase().trim() : '';
+
+  var data = CUSTS.filter(function(c){
+    if(!c.nba) return false;
+    if(renkF && c.nba.oncelik.renk !== renkF) return false;
+    if(aksF && c.nba.oncelik.etiket !== aksF) return false;
+    if(repF && c.rep !== repF) return false;
+    if(qF && !((c.name||'')+(c.rep||'')+(c.sehir||'')).toLowerCase().includes(qF)) return false;
+    return true;
+  });
+
+  // Renk önceliği ile sırala (kirmizi önce), sonra last12 desc
+  var colorOrder = {kirmizi:0, turuncu:1, sari:2, yesil:3, mor:4, mavi:5};
+  data.sort(function(a,b){
+    var ao = colorOrder[a.nba.oncelik.renk] || 9;
+    var bo = colorOrder[b.nba.oncelik.renk] || 9;
+    if(ao !== bo) return ao - bo;
+    return (b.last12||0) - (a.last12||0);
+  });
+
+  // Metrics kutucukları
+  var metricsEl = document.getElementById('nbaMetrics');
+  var allActive = CUSTS.filter(function(c){ return c.nba; });
+  var renkDist = {kirmizi:0, turuncu:0, sari:0, yesil:0, mor:0, mavi:0};
+  allActive.forEach(function(c){ renkDist[c.nba.oncelik.renk] = (renkDist[c.nba.oncelik.renk]||0) + 1; });
+  var renkLabel = {kirmizi:'🔴 Acil', turuncu:'🟠 Bu hafta', sari:'🟡 Bu ay', yesil:'🟢 Fırsat', mor:'🟣 Kayıp', mavi:'🔵 Genel'};
+  if(metricsEl){
+    metricsEl.innerHTML = Object.keys(renkDist).map(function(r){
+      var pct = allActive.length>0 ? (renkDist[r]/allActive.length*100).toFixed(1) : '0.0';
+      return '<div class="mc" style="border-left:3px solid '+ (r==='kirmizi'?'#dc2626':r==='turuncu'?'#ea580c':r==='sari'?'#ca8a04':r==='yesil'?'#16a34a':r==='mor'?'#9333ea':'#2563eb') +'">'+
+        '<div class="mn">'+renkDist[r]+'</div>'+
+        '<div class="ml">'+renkLabel[r]+' <span style="color:var(--text3)">%'+pct+'</span></div>'+
+      '</div>';
+    }).join('');
+  }
+
+  // Aksiyon filter seçeneklerini doldur
+  var aksSel = document.getElementById('nbaAksiyon');
+  if(aksSel && aksSel.options.length <= 1){
+    var aksMap = {};
+    allActive.forEach(function(c){ aksMap[c.nba.oncelik.etiket] = (aksMap[c.nba.oncelik.etiket]||0)+1; });
+    var sorted = Object.keys(aksMap).sort(function(a,b){ return aksMap[b] - aksMap[a]; });
+    sorted.forEach(function(e){
+      var o = document.createElement('option');
+      o.value = e; o.text = e+' ('+aksMap[e]+')';
+      aksSel.appendChild(o);
+    });
+  }
+
+  // Temsilci filter
+  var repSel = document.getElementById('nbaRep');
+  if(repSel && repSel.options.length <= 1){
+    var reps = [...new Set(allActive.map(function(c){ return c.rep; }))].filter(Boolean).sort();
+    reps.forEach(function(r){
+      var o = document.createElement('option');
+      o.value = r; o.text = r;
+      repSel.appendChild(o);
+    });
+  }
+
+  // Tablo
+  var tb = document.getElementById('nbaBody');
+  if(!tb) return;
+  tb.innerHTML = data.map(function(c){
+    var n = c.nba;
+    var ik1 = n.ikincil1 ? '<div class="nba-ikincil"><span class="nba-ikincil-label">2.</span><div><b>'+n.ikincil1.etiket+'</b><div class="nba-ikincil-neden">'+n.ikincil1.neden+'</div></div></div>' : '';
+    var ik2 = n.ikincil2 ? '<div class="nba-ikincil"><span class="nba-ikincil-label">3.</span><div><b>'+n.ikincil2.etiket+'</b><div class="nba-ikincil-neden">'+n.ikincil2.neden+'</div></div></div>' : '';
+    return '<tr class="nba-row-'+n.oncelik.renk+'">'+
+      '<td><strong>'+(c.name||'')+'</strong><div style="font-size:10px;color:var(--text3);margin-top:2px">'+(c.mkod||'')+' · VKN '+(c.vkn||'')+'</div></td>'+
+      '<td style="font-size:11px">'+(c.rep||'-')+'</td>'+
+      '<td style="font-size:11px">'+(c.sek||'-')+'<div style="color:var(--text3);font-size:10px">'+(c.grup||'')+'</div></td>'+
+      '<td style="font-size:11px">'+(c.sehir||'-')+'</td>'+
+      '<td style="text-align:right">'+(c.fatCount||0)+'</td>'+
+      '<td style="text-align:right">€'+Math.round(c.last12||0).toLocaleString('tr-TR')+'</td>'+
+      '<td style="text-align:right">'+(c.silentDays||0)+'</td>'+
+      '<td><span class="nba-trend nba-trend-'+(c.yillikTrend||'STABIL')+'">'+(c.yillikTrend||'STABIL')+'</span></td>'+
+      '<td><span class="nba-pill nba-'+n.oncelik.renk+'">'+n.oncelik.etiket+'</span><div class="nba-neden">'+n.oncelik.neden+'</div></td>'+
+      '<td>'+ik1+ik2+'</td>'+
+    '</tr>';
+  }).join('');
+}
+
+function exportNBA(){
+  var data = CUSTS.filter(function(c){ return c.nba; }).map(function(c){
+    var n = c.nba;
+    return {
+      Firma: c.name, Temsilci: c.rep, Sektor: c.sek, Grup: c.grup, Sehir: c.sehir,
+      VKN: c.vkn, Mkod: c.mkod,
+      Fatura: c.fatCount, Son12Ay_EUR: Math.round(c.last12||0),
+      Toplam_EUR: Math.round(c.totalEur||0), SessizGun: c.silentDays, Trend: c.yillikTrend||'',
+      Oncelik: n.oncelik.etiket, Oncelik_Neden: n.oncelik.neden,
+      Ikincil1: n.ikincil1 ? n.ikincil1.etiket : '',
+      Ikincil1_Neden: n.ikincil1 ? n.ikincil1.neden : '',
+      Ikincil2: n.ikincil2 ? n.ikincil2.etiket : '',
+      Ikincil2_Neden: n.ikincil2 ? n.ikincil2.neden : '',
+      Skor: c.score, Segment: c.segment||''
+    };
+  });
+  exportTable(data, 'nba_gunluk_aksiyon');
 }
 
 // ===== POTANSİYEL MÜŞTERİLER =====
