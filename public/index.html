@@ -1025,6 +1025,7 @@ function buildAll(){
   addPotansiyelCustomers();
   calcScores();
   calcNBA();
+  calcLookalike();
   buildCrossSell();
   populateFilters();
   renderAksiyon();
@@ -1640,6 +1641,126 @@ function exportNBA(){
   exportTable(data, 'nba_gunluk_aksiyon');
 }
 
+// ===== LOOKALIKE MOTORU =====
+// Aktif müşterilerden sektör/grup/il bazlı propensity öğren → Soğuk potansiyele uygula
+// Her potansiyel için: Lookalike Skor + En iyi 3 ürün önerisi + Güven seviyesi
+var LOOKALIKE_MIN_SEGMENT = 3; // bir segmentte en az 3 aktif müşteri olmalı
+
+function calcLookalike(){
+  // Sadece aktif (fatura kesmiş) müşterilerden öğren
+  var aktifler = CUSTS.filter(function(c){ return !c.isPotansiyel && c.fatCount > 0; });
+  if(aktifler.length === 0) return;
+
+  // Tüm kategorileri topla
+  var allCats = {};
+  aktifler.forEach(function(c){
+    if(c.catList){
+      c.catList.forEach(function(k){ allCats[k] = true; });
+    } else if(c.cats && c.cats.forEach){
+      c.cats.forEach(function(k){ allCats[k] = true; });
+    }
+  });
+  var catKeys = Object.keys(allCats);
+  if(catKeys.length === 0) return;
+
+  // Her aktif müşterinin aldığı kategoriler (set)
+  function getCats(c){
+    if(c.catList && c.catList.length) return c.catList;
+    if(c.cats && c.cats instanceof Set) return Array.from(c.cats);
+    return [];
+  }
+
+  // Propensity tablosu inşa et
+  function buildProp(keyFn){
+    var seg = {};  // segKey -> {cat: count, _n: count}
+    aktifler.forEach(function(c){
+      var k = keyFn(c);
+      if(!k) return;
+      if(!seg[k]) { seg[k] = {_n:0}; }
+      seg[k]._n++;
+      getCats(c).forEach(function(cat){
+        seg[k][cat] = (seg[k][cat]||0) + 1;
+      });
+    });
+    // Oranlara çevir
+    var prop = {};
+    Object.keys(seg).forEach(function(k){
+      var n = seg[k]._n;
+      prop[k] = {_n: n};
+      catKeys.forEach(function(cat){
+        prop[k][cat] = (seg[k][cat]||0) / n;
+      });
+    });
+    return prop;
+  }
+
+  // Hiyerarşik segmentler (en spesifikten en genele)
+  var propSGİ = buildProp(function(c){ return (c.sek&&c.grup&&c.sehir) ? c.sek+'|'+c.grup+'|'+c.sehir : null; });
+  var propSG  = buildProp(function(c){ return (c.sek&&c.grup) ? c.sek+'|'+c.grup : null; });
+  var propS   = buildProp(function(c){ return c.sek||null; });
+  var propG   = buildProp(function(c){ return c.grup||null; });
+
+  // Global ortalama (hiçbir segment eşleşmezse)
+  var globalProp = {_n: aktifler.length};
+  catKeys.forEach(function(cat){
+    var cnt = 0;
+    aktifler.forEach(function(c){
+      if(getCats(c).indexOf(cat) >= 0) cnt++;
+    });
+    globalProp[cat] = cnt / aktifler.length;
+  });
+
+  // Her potansiyel için skorla
+  var potansiyeller = CUSTS.filter(function(c){ return c.isPotansiyel; });
+  potansiyeller.forEach(function(c){
+    var sek = c.sek || '', grup = c.grup || '', sehir = c.sehir || '';
+
+    // Hiyerarşik düşüş
+    var seviye, propMap, nKiyas;
+    var k_sgi = sek+'|'+grup+'|'+sehir;
+    var k_sg  = sek+'|'+grup;
+
+    if(sek && grup && sehir && propSGİ[k_sgi] && propSGİ[k_sgi]._n >= LOOKALIKE_MIN_SEGMENT){
+      seviye = 'Sektör+Grup+İl'; propMap = propSGİ[k_sgi]; nKiyas = propMap._n;
+    } else if(sek && grup && propSG[k_sg] && propSG[k_sg]._n >= LOOKALIKE_MIN_SEGMENT){
+      seviye = 'Sektör+Grup'; propMap = propSG[k_sg]; nKiyas = propMap._n;
+    } else if(sek && propS[sek] && propS[sek]._n >= LOOKALIKE_MIN_SEGMENT){
+      seviye = 'Sektör'; propMap = propS[sek]; nKiyas = propMap._n;
+    } else if(grup && propG[grup] && propG[grup]._n >= LOOKALIKE_MIN_SEGMENT){
+      seviye = 'Grup'; propMap = propG[grup]; nKiyas = propMap._n;
+    } else {
+      seviye = 'Genel ortalama'; propMap = globalProp; nKiyas = globalProp._n;
+    }
+
+    // En iyi 3 ürün
+    var sortedCats = catKeys.map(function(cat){ return [cat, propMap[cat]||0]; })
+                            .filter(function(x){ return x[1] > 0; })
+                            .sort(function(a,b){ return b[1] - a[1]; });
+    var top3 = sortedCats.slice(0, 3).map(function(x){ return {kategori: x[0], oran: Math.round(x[1]*100)}; });
+
+    // Skor = en iyi 3 ürünün ortalama propensity'si * 100
+    var skor = top3.length > 0 ? Math.round(top3.reduce(function(s,x){return s+x.oran;},0) / top3.length) : 0;
+
+    // Güven seviyesi
+    var guven;
+    if(seviye === 'Sektör+Grup+İl' && nKiyas >= 5) guven = 'YÜKSEK';
+    else if(seviye === 'Sektör+Grup+İl' || seviye === 'Sektör+Grup') guven = 'ORTA';
+    else if(seviye === 'Sektör' || seviye === 'Grup') guven = 'DÜŞÜK';
+    else guven = 'ÇOK DÜŞÜK';
+
+    c.lookalikeSkor = skor;
+    c.lookalikeTop3 = top3;
+    c.lookalikeSeviye = seviye;
+    c.lookalikeNKiyas = nKiyas;
+    c.lookalikeGuven = guven;
+  });
+}
+
+function formatLookalikeTop3(top3){
+  if(!top3 || !top3.length) return '-';
+  return top3.map(function(x){ return x.kategori+' (%'+x.oran+')'; }).join(', ');
+}
+
 // ===== POTANSİYEL MÜŞTERİLER =====
 function addPotansiyelCustomers(){
   if(!D.mst || !D.mst.length) return;
@@ -1680,14 +1801,15 @@ function addPotansiyelCustomers(){
     var mKod, name, rep, vkn, sek, grp;
 
     if(isNewestFormat){
-      // En yeni format: Muhatap kodu, Muhatap adı, Muhatap türü, Satış çalışanı adı, TC kimlik no., Vergi no.
+      // En yeni format: Muhatap kodu, Muhatap adı, Muhatap türü, Satış çalışanı adı, TC kimlik no., Vergi no., Grup adı, Sektör adı, Il, Ilce
       mKod = String(r['Muhatap kodu']||'').trim();
       name = String(r['Muhatap adı']||'').trim();
       rep  = String(r['Satış çalışanı adı']||'').trim();
       vkn  = String(r['Vergi no.']||'').replace(/\D/g,'');
+      // Müşteri-aday'da yeni eklenen kolonlar varsa onları kullan, yoksa fatura haritasından fallback
       var extra0 = vknSehir[vkn] || {};
-      sek  = extra0.sek||'';
-      grp  = extra0.grp||'';
+      sek  = String(r['Sektör adı']||'').trim() || extra0.sek || '';
+      grp  = String(r['Grup adı']||'').trim() || extra0.grp || '';
     } else if(isNewFormat){
       // Yeni format: Muhatap kodu=M-kod, Muhatap adı=Firma, SlpName=Temsilci, inddesc=Sektör, groupname=Grup
       mKod = String(r['Muhatap kodu']||'').trim();
@@ -1730,8 +1852,9 @@ function addPotansiyelCustomers(){
       if(contactMap[contacts[ci]]) return; // Bu iletişim bilgisi zaten eklendi
     }
 
-    // Şehir bilgisi
-    var sehir = (vkn && vknSehir[vkn]) ? vknSehir[vkn].sehir : '';
+    // Şehir bilgisi — önce müşteri-aday'dan, yoksa fatura'dan
+    var sehir = String(r['Il']||'').trim() || (vkn && vknSehir[vkn] ? vknSehir[vkn].sehir : '') || '';
+    var ilce = String(r['Ilce']||'').trim() || '';
 
     // Potansiyel müşteri olarak ekle
     CUSTS.push({
@@ -1741,7 +1864,7 @@ function addPotansiyelCustomers(){
       sek: sek||'',
       grp: grp||'',
       sehir: sehir||'',
-      ilce: '',
+      ilce: ilce||'',
       totalEur: 0,
       last12: 0,
       last1ay: 0,
@@ -1894,7 +2017,13 @@ function renderMusteriler(){
   window._custFiltered=CUSTS.filter(function(c){
     return (!q||(c.name+c.sek+c.sehir+c.rep).toLowerCase().includes(q))&&
       (!rep||c.rep===rep)&&(!sek||c.sek===sek)&&(!churn||c.churn===churn)&&(!seg||c.segment===seg);
-  }).sort(function(a,b){return b.totalEur-a.totalEur;});
+  }).sort(function(a,b){
+    // Potansiyel filtresi aktifse Lookalike skoruna göre; değilse totalEur
+    if(churn === 'Potansiyel'){
+      return (b.lookalikeSkor||0) - (a.lookalikeSkor||0);
+    }
+    return b.totalEur-a.totalEur;
+  });
   renderCustPage();
   document.getElementById('custMetrics').innerHTML=[
     ['Müşteri',window._custFiltered.length,'adet'],
@@ -1914,6 +2043,17 @@ function renderCustPage(){
     var davranisHTML = (c.davranisEtiketleri||[]).map(function(t){
       return '<span style="display:inline-block;padding:1px 6px;margin:1px;border-radius:8px;background:'+(tagColors[t]||'#999')+';color:#fff;font-size:9px;white-space:nowrap">'+t+'</span>';
     }).join(' ');
+
+    // POTANSİYEL MÜŞTERİ için Lookalike bilgisi
+    if(c.isPotansiyel && typeof c.lookalikeSkor !== 'undefined'){
+      var guvenColor = {'YÜKSEK':'#16a34a','ORTA':'#d97706','DÜŞÜK':'#94a3b8','ÇOK DÜŞÜK':'#cbd5e1'};
+      var skorColor = c.lookalikeSkor >= 60 ? '#16a34a' : c.lookalikeSkor >= 40 ? '#d97706' : '#94a3b8';
+      var top3Text = formatLookalikeTop3(c.lookalikeTop3);
+      var tipText = 'Lookalike skor: '+c.lookalikeSkor+' ('+c.lookalikeGuven+')\nSeviye: '+(c.lookalikeSeviye||'-')+'\nKıyas: '+(c.lookalikeNKiyas||0)+' aktif müşteri\n\nÖnerilen ürünler:\n'+top3Text;
+      davranisHTML = '<span title="'+tipText.replace(/"/g,'&quot;')+'" style="display:inline-block;padding:2px 8px;margin:1px;border-radius:8px;background:'+skorColor+';color:#fff;font-size:10px;font-weight:700;cursor:help">⚡ Lookalike: '+c.lookalikeSkor+'</span> '+
+        '<span title="Güven: '+c.lookalikeGuven+'" style="display:inline-block;padding:1px 6px;margin:1px;border-radius:8px;background:'+(guvenColor[c.lookalikeGuven]||'#94a3b8')+';color:#fff;font-size:9px">'+c.lookalikeGuven+'</span>'+
+        (c.lookalikeTop3 && c.lookalikeTop3.length > 0 ? '<div style="font-size:10px;color:#475569;margin-top:3px;line-height:1.3">'+c.lookalikeTop3.map(function(x){return '<span style="color:#1e3a5f">'+x.kategori+'</span> <span style="color:#94a3b8">(%'+x.oran+')</span>';}).join(' · ')+'</div>' : '');
+    }
 
     return '<tr><td><strong>'+c.name+'</strong><br><span style="font-size:10px;color:#94a3b8">'+c.vkn+'</span></td>'+
       '<td>'+c.rep+'</td><td>'+c.sek+'</td><td>'+c.sehir+'</td>'+
@@ -3026,7 +3166,7 @@ function exportAksiyonExcel(){
   console.log('Excel indirildi: ' + rows.length + ' firma');
 }
 function exportAksiyon(){exportTable(CUSTS.filter(function(c){return c.silentDays>30;}).sort(function(a,b){return b.score-a.score;}).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType,Kategori:c.actionCategory||'',NedenSimdi:c.nedenSimdi||'',SonAlim:fd(c.lastDate),SonZiyaret:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Siklik:c.avgGap?Math.round(c.avgGap)+' gün':'-',AcikTeklif:c.acikTeklif};}), 'aksiyon');}
-function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,TotalEUR:Math.round(c.totalEur),CLV:c.clv||0,CLV_Gelecek:c.clvGelecek||0,YillikOrtalama:c.yillikOrtalamaCiro||0,MusteriYasiYil:c.musteriYasiYil||'',Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Davranis:(c.davranisEtiketleri||[]).join(', '),Skor:c.score};}), 'musteriler');}
+function exportMusteriler(){exportTable((window._custFiltered||CUSTS).map(function(c){return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Grup:c.grp,Sehir:c.sehir,Ilce:c.ilce||'',TotalEUR:Math.round(c.totalEur),CLV:c.clv||0,CLV_Gelecek:c.clvGelecek||0,YillikOrtalama:c.yillikOrtalamaCiro||0,MusteriYasiYil:c.musteriYasiYil||'',Son12Ay:Math.round(c.last12),SonAlim:fd(c.lastDate),Churn:c.churn,Segment:c.segment,Davranis:(c.davranisEtiketleri||[]).join(', '),Skor:c.score,LookalikeSkor:c.lookalikeSkor||'',LookalikeGuven:c.lookalikeGuven||'',LookalikeSeviye:c.lookalikeSeviye||'',LookalikeKiyas:c.lookalikeNKiyas||'',OnerilenUrunler:formatLookalikeTop3(c.lookalikeTop3)};}), 'musteriler');}
 function exportRFM(){exportTable(CUSTS.map(function(c){return {Firma:c.name,R:c.rfmR,F:c.rfmF,M:Math.round(c.totalEur),RFMSkor:c.rfmScore,Segment:c.segment};}), 'rfm');}
 function exportSessiz(){exportTable(CUSTS.filter(function(c){return c.silentDays>=60;}).map(function(c){var late=''; if(c.nextEst){var lateDays=daysDiff(c.nextEst,TODAY); late=lateDays>0?('Gecikti '+lateDays+'g'):('Beklenti '+(-lateDays)+'g');} return {Firma:c.name,Temsilci:c.rep,Sehir:c.sehir,SessizGun:c.silentDays,Skor:c.score,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',TahminiSonraki:c.nextEst?fd(c.nextEst):'',Durum:late,Aksiyon:c.actionType,AcikTeklif:c.acikTeklif||0};}), 'sessiz');}
 function exportKayip(){exportTable(CUSTS.filter(function(c){return c.silentDays>365;}).sort(function(a,b){return b.score-a.score;}).map(function(c){var ciro2024=0; (c.dates||[]).forEach(function(d,i){if(d && d.getFullYear()===2024 && c.fatEurs){ciro2024+=c.fatEurs[i]||0;}}); return {Firma:c.name,Temsilci:c.rep,Sektor:c.sek,Sehir:c.sehir,SonAlim:fd(c.lastDate),SonAktivite:c.lastAktDate?fd(c.lastAktDate):'',SessizGun:c.silentDays,Ciro2024:Math.round(ciro2024||0),Skor:c.score,BuYil_EUR:Math.round(c.ciroBuYil||0),GecenYil_EUR:Math.round(c.ciroGecenYilAyniDonem||0),Aksiyon:c.actionType};}), 'kayip');}
