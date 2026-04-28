@@ -239,8 +239,8 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
     <input id="authEmail" type="email" placeholder="E-posta adresi">
     <input id="authPassword" type="password" placeholder="Şifre">
     <button class="main-btn" onclick="doAuth()">Giriş Yap</button>
-    <div class="auth-switch">
-      Hesabın yok mu? <a onclick="toggleAuth()">Kayıt ol</a>
+    <div class="auth-switch" style="font-size:11px;color:#94a3b8">
+      Hesabınız yok mu? Yöneticinize başvurun.
     </div>
   </div>
 </div>
@@ -484,9 +484,74 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
 <!-- ADMIN PANELİ -->
 <div id="p-admin" class="panel">
   <div class="st">Kullanıcı Yönetimi</div>
-  <div class="aw aw-i" style="margin-bottom:12px">Kayıt olan kullanıcıları onaylayın veya silin. Onaylanmayan kullanıcılar sisteme giremez.</div>
-  <button class="btn btn-p" onclick="loadUsers()" style="margin-bottom:12px">🔄 Yenile</button>
+  <div class="aw aw-i" style="margin-bottom:12px">Buradan yeni kullanıcı oluşturabilir, mevcut kullanıcıların bilgilerini düzenleyebilir, şifrelerini sıfırlayabilirsiniz.</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-p" onclick="loadUsers()">🔄 Yenile</button>
+    <button class="btn btn-g" onclick="openUserCreate()">+ Yeni Kullanıcı</button>
+  </div>
   <div id="userList"></div>
+</div>
+
+<!-- KULLANICI OLUŞTUR/DÜZENLE MODAL -->
+<div class="md-modal-bg" id="userModal" onclick="if(event.target===this)closeUserModal()">
+  <div class="md-modal" style="max-width:560px">
+    <div class="md-head">
+      <h2>👤 <span id="userModalTitle">Kullanıcı</span></h2>
+      <button class="md-close" onclick="closeUserModal()">×</button>
+    </div>
+    <div class="md-body">
+      <div id="userFormErr" class="aw aw-r" style="display:none;margin-bottom:10px"></div>
+
+      <div class="md-field-row" style="grid-template-columns:130px 1fr">
+        <div class="lbl">Ad Soyad</div>
+        <div class="val"><input type="text" id="uf-name" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr">
+        <div class="lbl">E-posta *</div>
+        <div class="val"><input type="email" id="uf-email" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr" id="uf-pwrow">
+        <div class="lbl">Şifre *</div>
+        <div class="val"><input type="text" id="uf-password" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px" placeholder="En az 4 karakter"></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr">
+        <div class="lbl">Telefon</div>
+        <div class="val"><input type="text" id="uf-phone" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px" placeholder="0 (___) ___ __ __"></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr">
+        <div class="lbl">Departman</div>
+        <div class="val"><input type="text" id="uf-department" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px" placeholder="Satış / Operasyon / Yönetim"></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr">
+        <div class="lbl">Bölge</div>
+        <div class="val"><input type="text" id="uf-region" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px" placeholder="Marmara / İç Anadolu / vs."></div>
+      </div>
+      <div class="md-field-row" style="grid-template-columns:130px 1fr" id="uf-rolerow">
+        <div class="lbl">Rol</div>
+        <div class="val">
+          <select id="uf-role" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px">
+            <option value="user">Kullanıcı</option>
+            <option value="admin">Yönetici</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+        <button class="btn" onclick="closeUserModal()">İptal</button>
+        <button class="btn btn-p" id="uf-save" onclick="userSave()">Kaydet</button>
+      </div>
+
+      <!-- Şifre sıfırlama (sadece düzenleme modunda) -->
+      <div id="uf-pwsection" style="display:none;margin-top:20px;padding-top:18px;border-top:1px solid var(--border)">
+        <h3 style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin:0 0 10px">🔑 Şifre Sıfırla</h3>
+        <div class="aw aw-w" style="margin-bottom:8px;font-size:11px">Yeni şifreyi girin ve "Şifre Sıfırla"ya basın. Yeni şifreyi kullanıcıya kendiniz iletin.</div>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="uf-newpw" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px" placeholder="Yeni şifre">
+          <button class="btn btn-r" onclick="userResetPassword()">Şifre Sıfırla</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ANALİZ PANELİ — Power BI Özellikleri -->
@@ -892,16 +957,21 @@ function loadUsers(){
   fetch(API+'/api/users',{headers:{Authorization:'Bearer '+token}})
     .then(function(r){return r.json();})
     .then(function(list){
+      window._userList = list;
       if(!list.length){el.innerHTML='<div class="aw aw-w">Henüz kayıtlı kullanıcı yok.</div>';return;}
-      el.innerHTML = '<div class="tw"><table><thead><tr><th>Ad</th><th>E-posta</th><th>Rol</th><th>Durum</th><th>Kayıt Tarihi</th><th>İşlem</th></tr></thead><tbody>' +
+      el.innerHTML = '<div class="tw"><table><thead><tr><th>Ad</th><th>E-posta</th><th>Telefon</th><th>Departman</th><th>Bölge</th><th>Rol</th><th>Durum</th><th>Kayıt Tarihi</th><th>İşlem</th></tr></thead><tbody>' +
         list.map(function(u){
           return '<tr>' +
-            '<td>'+( u.name||'-')+'</td>' +
+            '<td><strong>'+(u.name||'-')+'</strong></td>' +
             '<td>'+u.email+'</td>' +
+            '<td>'+(u.phone||'-')+'</td>' +
+            '<td>'+(u.department||'-')+'</td>' +
+            '<td>'+(u.region||'-')+'</td>' +
             '<td><span class="b '+(u.role==='admin'?'bp':'bgr')+'">'+u.role+'</span></td>' +
             '<td><span class="b '+(u.active?'bg':'br')+'">'+(u.active?'Aktif':'Bekliyor')+'</span></td>' +
             '<td>'+new Date(u.created_at).toLocaleDateString('tr-TR')+'</td>' +
             '<td>' +
+              '<button class="btn btn-p" style="padding:3px 8px;font-size:11px;margin-right:4px" onclick="openUserEdit('+u.id+')">✏ Düzenle</button>' +
               (!u.active ? '<button class="btn btn-g" style="padding:3px 8px;font-size:11px;margin-right:4px" onclick="approveUser('+u.id+')">✓ Onayla</button>' : '') +
               (u.role!=='admin' ? '<button class="btn btn-r" style="padding:3px 8px;font-size:11px" onclick="deleteUser('+u.id+')">Sil</button>' : '') +
             '</td>' +
@@ -920,6 +990,132 @@ function deleteUser(id){
   if(!confirm('Bu kullanıcıyı silmek istediğinize emin misiniz?')) return;
   fetch(API+'/api/users/'+id,{method:'DELETE',headers:{Authorization:'Bearer '+token}})
     .then(function(){loadUsers();showToast('🗑️ Kullanıcı silindi');});
+}
+
+// ===== Kullanıcı Yönetimi - Modal =====
+var EDITING_USER_ID = null;
+
+function openUserCreate(){
+  EDITING_USER_ID = null;
+  document.getElementById('userModalTitle').textContent = 'Yeni Kullanıcı Oluştur';
+  document.getElementById('uf-name').value = '';
+  document.getElementById('uf-email').value = '';
+  document.getElementById('uf-password').value = '';
+  document.getElementById('uf-phone').value = '';
+  document.getElementById('uf-department').value = '';
+  document.getElementById('uf-region').value = '';
+  document.getElementById('uf-role').value = 'user';
+  document.getElementById('uf-pwrow').style.display = '';
+  document.getElementById('uf-pwsection').style.display = 'none';
+  document.getElementById('uf-save').textContent = 'Oluştur';
+  document.getElementById('userFormErr').style.display = 'none';
+  document.getElementById('userModal').classList.add('show');
+}
+
+function openUserEdit(id){
+  var user = (window._userList||[]).find(function(u){return u.id===id;});
+  if(!user) return;
+  EDITING_USER_ID = id;
+  document.getElementById('userModalTitle').textContent = 'Kullanıcı Düzenle: ' + user.email;
+  document.getElementById('uf-name').value = user.name || '';
+  document.getElementById('uf-email').value = user.email || '';
+  document.getElementById('uf-phone').value = user.phone || '';
+  document.getElementById('uf-department').value = user.department || '';
+  document.getElementById('uf-region').value = user.region || '';
+  document.getElementById('uf-role').value = user.role || 'user';
+  document.getElementById('uf-pwrow').style.display = 'none'; // düzenlemede şifre alanı gizlenir, ayrı bölümde sıfırlama var
+  document.getElementById('uf-pwsection').style.display = '';
+  document.getElementById('uf-newpw').value = '';
+  document.getElementById('uf-save').textContent = 'Güncelle';
+  document.getElementById('userFormErr').style.display = 'none';
+  document.getElementById('userModal').classList.add('show');
+}
+
+function closeUserModal(){
+  document.getElementById('userModal').classList.remove('show');
+  EDITING_USER_ID = null;
+}
+
+function showUserErr(msg){
+  var el = document.getElementById('userFormErr');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function userSave(){
+  var name = document.getElementById('uf-name').value.trim();
+  var email = document.getElementById('uf-email').value.trim();
+  var phone = document.getElementById('uf-phone').value.trim();
+  var department = document.getElementById('uf-department').value.trim();
+  var region = document.getElementById('uf-region').value.trim();
+  var role = document.getElementById('uf-role').value;
+
+  if(!email){ showUserErr('E-posta zorunlu'); return; }
+  if(!email.includes('@')){ showUserErr('Geçerli bir e-posta giriniz'); return; }
+
+  if(EDITING_USER_ID === null){
+    // YENİ KULLANICI OLUŞTUR
+    var password = document.getElementById('uf-password').value;
+    if(!password || password.length < 4){ showUserErr('Şifre en az 4 karakter olmalı'); return; }
+    fetch(API+'/api/users',{
+      method:'POST',
+      headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+      body: JSON.stringify({email:email, password:password, name:name, phone:phone, department:department, region:region, role:role, active:true})
+    }).then(function(r){return r.json();})
+      .then(function(data){
+        if(data.error){ showUserErr(data.error); return; }
+        closeUserModal();
+        loadUsers();
+        showToast('✅ Kullanıcı oluşturuldu');
+      })
+      .catch(function(){ showUserErr('Sunucu hatası'); });
+  } else {
+    // DÜZENLE
+    var changes = [];
+    var p1 = fetch(API+'/api/users/'+EDITING_USER_ID,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+      body: JSON.stringify({name:name, email:email, phone:phone, department:department, region:region})
+    }).then(function(r){return r.json();});
+
+    // Rol değişti mi kontrol et (kendine müdahale yok)
+    var origUser = (window._userList||[]).find(function(u){return u.id===EDITING_USER_ID;});
+    var rolePromise = Promise.resolve();
+    if(origUser && origUser.role !== role && currentUser && origUser.id !== currentUser.id){
+      rolePromise = fetch(API+'/api/users/'+EDITING_USER_ID+'/role',{
+        method:'PUT',
+        headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+        body: JSON.stringify({role:role})
+      }).then(function(r){return r.json();});
+    }
+
+    Promise.all([p1, rolePromise]).then(function(results){
+      var infoResult = results[0];
+      if(infoResult && infoResult.error){ showUserErr(infoResult.error); return; }
+      closeUserModal();
+      loadUsers();
+      showToast('✅ Kullanıcı güncellendi');
+    }).catch(function(){ showUserErr('Sunucu hatası'); });
+  }
+}
+
+function userResetPassword(){
+  var newpw = document.getElementById('uf-newpw').value;
+  if(!newpw || newpw.length < 4){ showUserErr('Yeni şifre en az 4 karakter olmalı'); return; }
+  if(!confirm('Bu kullanıcının şifresini sıfırlamak istediğinize emin misiniz?\n\nYeni şifre: '+newpw+'\n\nBu şifreyi kullanıcıya iletmeniz gerekiyor.')) return;
+
+  fetch(API+'/api/users/'+EDITING_USER_ID+'/password',{
+    method:'PUT',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body: JSON.stringify({password:newpw})
+  }).then(function(r){return r.json();})
+    .then(function(data){
+      if(data.error){ showUserErr(data.error); return; }
+      document.getElementById('uf-newpw').value = '';
+      showToast('🔑 Şifre sıfırlandı: '+newpw);
+      alert('Şifre başarıyla sıfırlandı!\n\nYeni Şifre: '+newpw+'\n\nBu şifreyi kullanıcıya iletmeyi unutmayın.');
+    })
+    .catch(function(){ showUserErr('Sunucu hatası'); });
 }
 
 // ===== DB PANEL =====
