@@ -37,6 +37,9 @@ async function initDB() {
   )`);
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE');
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'");
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50)');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(100)');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS region VARCHAR(100)');
   await pool.query(`CREATE TABLE IF NOT EXISTS excel_uploads (
     id SERIAL PRIMARY KEY,
     etiket VARCHAR(255),
@@ -82,16 +85,24 @@ app.get('/api/status', function(req, res) {
 
 app.post('/api/register', function(req, res) {
   var email = req.body.email, password = req.body.password, name = req.body.name;
-  var isAdmin = (email === ADMIN_EMAIL);
-  bcrypt.hash(password, 10).then(function(hash) {
-    return pool.query(
-      'INSERT INTO users (email, password, name, active, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, active',
-      [email, hash, name, isAdmin, isAdmin ? 'admin' : 'user']
-    );
-  }).then(function(result) {
-    if (!isAdmin) return res.json({ pending: true, message: 'Kaydınız alındı. Admin onayından sonra giriş yapabilirsiniz.' });
-    var token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, JWT_SECRET);
-    res.json({ token, user: result.rows[0] });
+  // Sadece kullanıcı tablosu boşsa (ilk kurulum) veya admin email ise kayıt kabul edilir
+  pool.query('SELECT COUNT(*)::int AS cnt FROM users').then(function(countResult) {
+    var userCount = countResult.rows[0].cnt;
+    var isAdmin = (email === ADMIN_EMAIL);
+    // Sistemde kullanıcı varsa ve admin email değilse → kayıt kapalı
+    if (userCount > 0 && !isAdmin) {
+      return res.status(403).json({ error: 'Yeni kayıt alımı kapalıdır. Hesap için yöneticinize başvurun.' });
+    }
+    return bcrypt.hash(password, 10).then(function(hash) {
+      return pool.query(
+        'INSERT INTO users (email, password, name, active, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, active',
+        [email, hash, name, isAdmin, isAdmin ? 'admin' : 'user']
+      );
+    }).then(function(result) {
+      if (!isAdmin) return res.json({ pending: true, message: 'Kaydınız alındı. Admin onayından sonra giriş yapabilirsiniz.' });
+      var token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, JWT_SECRET);
+      res.json({ token, user: result.rows[0] });
+    });
   }).catch(function(err) {
     res.status(400).json({ error: err.message });
   });
@@ -113,7 +124,7 @@ app.post('/api/login', function(req, res) {
 });
 
 app.get('/api/users', auth, adminOnly, function(req, res) {
-  pool.query('SELECT id, email, name, role, active, created_at FROM users ORDER BY created_at')
+  pool.query('SELECT id, email, name, role, active, phone, department, region, created_at FROM users ORDER BY created_at')
     .then(function(r) { res.json(r.rows); })
     .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
@@ -127,6 +138,95 @@ app.put('/api/users/:id/approve', auth, adminOnly, function(req, res) {
 app.delete('/api/users/:id', auth, adminOnly, function(req, res) {
   pool.query('DELETE FROM users WHERE id=$1', [req.params.id])
     .then(function() { res.json({ success: true }); })
+    .catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+// Admin: Yeni kullanıcı oluştur (kayıt formu yerine)
+app.post('/api/users', auth, adminOnly, function(req, res) {
+  var email = req.body.email, password = req.body.password, name = req.body.name;
+  var phone = req.body.phone || null;
+  var department = req.body.department || null;
+  var region = req.body.region || null;
+  var role = req.body.role || 'user';
+  var active = req.body.active !== undefined ? req.body.active : true; // admin oluşturduysa otomatik aktif
+
+  if (!email || !password) return res.status(400).json({ error: 'E-posta ve şifre zorunlu' });
+  if (password.length < 4) return res.status(400).json({ error: 'Şifre en az 4 karakter olmalı' });
+
+  bcrypt.hash(password, 10).then(function(hash) {
+    return pool.query(
+      'INSERT INTO users (email, password, name, role, active, phone, department, region) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, email, name, role, active, phone, department, region, created_at',
+      [email, hash, name, role, active, phone, department, region]
+    );
+  }).then(function(r) {
+    res.json(r.rows[0]);
+  }).catch(function(err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Bu e-posta zaten kayıtlı' });
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin: Kullanıcı bilgilerini güncelle (ad, email, telefon, departman, bölge)
+app.put('/api/users/:id', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  var name = req.body.name;
+  var email = req.body.email;
+  var phone = req.body.phone;
+  var department = req.body.department;
+  var region = req.body.region;
+
+  pool.query(
+    'UPDATE users SET name=COALESCE($1,name), email=COALESCE($2,email), phone=$3, department=$4, region=$5 WHERE id=$6 RETURNING id, email, name, role, active, phone, department, region',
+    [name, email, phone, department, region, id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    res.json(r.rows[0]);
+  }).catch(function(err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Bu e-posta zaten başka bir kullanıcıda kayıtlı' });
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin: Şifre sıfırla
+app.put('/api/users/:id/password', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  var newPassword = req.body.password;
+  if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'Şifre en az 4 karakter olmalı' });
+
+  bcrypt.hash(newPassword, 10).then(function(hash) {
+    return pool.query('UPDATE users SET password=$1 WHERE id=$2 RETURNING id, email, name', [hash, id]);
+  }).then(function(r) {
+    if (!r.rows[0]) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    res.json({ success: true, user: r.rows[0] });
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin: Rol değiştir
+app.put('/api/users/:id/role', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  var role = req.body.role;
+  if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'Geçersiz rol' });
+
+  // Kendi rolünü değiştirmesini engelle (kilitlenme riski)
+  if (parseInt(id) === req.user.id) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
+
+  pool.query('UPDATE users SET role=$1 WHERE id=$2 RETURNING id, email, name, role', [role, id])
+    .then(function(r) {
+      if (!r.rows[0]) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+      res.json(r.rows[0]);
+    })
+    .catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+// Admin: Tek kullanıcı detay
+app.get('/api/users/:id', auth, adminOnly, function(req, res) {
+  pool.query('SELECT id, email, name, role, active, phone, department, region, created_at FROM users WHERE id=$1', [req.params.id])
+    .then(function(r) {
+      if (!r.rows[0]) return res.status(404).json({ error: 'Bulunamadı' });
+      res.json(r.rows[0]);
+    })
     .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
