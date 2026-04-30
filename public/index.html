@@ -5006,7 +5006,7 @@ function renderAnalizMustKar(){
   var F_URN='Kalem/hizmet tanımı';
 
   function getEUR(r){  return parseFloat(r[F_EUR])||parseFloat(r['FatToplamEUR'])||0; }
-  function getTAR(r){  var d=r[F_TAR]||r['FaturaTarihi']||r['SiparisTarihi']; return d?new Date(d):null; }
+  function getTAR(r){  var d=r['FaturaTarihi']; return d?new Date(d):null; }
   function getKOD(r){  return String(r[F_KOD]||r['Ürün kodu']||'').trim(); }
   function getURN(r){  return String(r[F_URN]||r['Ürün adı']||r['Ürün Adı']||'').trim(); }
 
@@ -5044,7 +5044,7 @@ function renderAnalizMustKar(){
       var key=kod||urn;
       if(!key) continue; // kod da ürün adı da boşsa atla
       var eur=getEUR(r);
-      var adet=parseFloat(r['FatMiktar']||r['SipMiktar']||r['DeliveryQTY']||0)||0;
+      var adet=parseFloat(r['FatMiktar'])||0;
       if(!map[key]) map[key]={kod:kod,urn:urn,eur:0,adet:0};
       map[key].eur+=eur;
       map[key].adet+=adet;
