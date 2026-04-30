@@ -1194,6 +1194,14 @@ function parseDate(d){
 }
 function normVKN(v){return v?String(v).replace(/\D/g,'').trim():'';}
 function daysDiff(d1,d2){return Math.round((d2-d1)/(1000*60*60*24));}
+// Bir D.fat satırının "satış tarihi" — sadece faturalanmış satırların tarihini döndürür
+// Açık siparişler (FaturaTarihi boş) null döner → analizlerde sayılmaz
+function getSatisTarihi(r){
+  if(!r || !r['FaturaTarihi']) return null;
+  if(parseFloat(r['FatMiktar'])<=0) return null; // sıfır miktarlı satırı da çıkar
+  var d = parseDate(r['FaturaTarihi']);
+  return (d && !isNaN(d)) ? d : null;
+}
 
 // ===== BUILD ALL =====
 function calcScores(){
@@ -1412,9 +1420,12 @@ function buildCusts(){
       };
     }
     var m=map[v];
+    // ESKİ: m.fatCount++ - açık siparişler de sayılıyordu, hatalı
+    // YENİ: Sadece gerçekten faturalanmış satırları say
+    var faturaTarihiVar = !!r['FaturaTarihi'];
+    if(faturaTarihiVar) m.fatCount++;
     var bk=parseFloat(r['BrutKarEur'])||0;
     m.brutKar+=bk;
-    m.fatCount++;
     // Ücretli fatura sayısı (Sapma hesabında kullanılıyor)
     var fatEurVal=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
     if(fatEurVal>0) m.ucretliFatCount++;
@@ -1429,9 +1440,10 @@ function buildCusts(){
     if(grp && !m.grp) m.grp = grp;
     if(sehir && !m.sehir) m.sehir = sehir;
     if(ilce && !m.ilce) m.ilce = ilce;
-    var dt=r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi'];
-    if(dt){
-      var d=parseDate(dt);
+    // ESKİ: Kayıt tarihi/FaturaTarihi/SiparisTarihi - açık sipariş tarihi de katılıyordu
+    // YENİ: Sadece FaturaTarihi (gerçekleşmiş satış) - açık siparişleri dahil etme
+    if(faturaTarihiVar){
+      var d=parseDate(r['FaturaTarihi']);
       if(!isNaN(d)){
         m.dates.push(d);
         if(!m.lastDate||d>m.lastDate){
@@ -2632,7 +2644,7 @@ function renderKayipTeklif(){
     // VKN bazlı index
     var key = vkn+'|'+kod;
     if(!fatIndex[key]) fatIndex[key] = [];
-    var t = parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']);
+    var t = getSatisTarihi(r);
     if(t) fatIndex[key].push(t);
     // Firma adı bazlı index (VKN uyumsuzluğu için)
     if(firmaAd){
@@ -2882,7 +2894,7 @@ function renderTeklifAnaliz(){
     if(!vkn||!kod) return;
     var key = vkn+'|'+kod;
     if(!fatIdx[key]) fatIdx[key] = [];
-    var t = parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']);
+    var t = getSatisTarihi(r);
     if(t) fatIdx[key].push(t);
   });
 
@@ -2945,7 +2957,7 @@ function renderTeklifAnaliz(){
 
 function exportTeklifAnaliz(){
   var fatIdx={};
-  D.fat.forEach(function(r){var vkn=normVKN(r['VKN']);var kod=String(r['Kalem numarası']||'').trim();if(!vkn||!kod)return;var key=vkn+'|'+kod;if(!fatIdx[key])fatIdx[key]=[];var t=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');if(t)fatIdx[key].push(t);});
+  D.fat.forEach(function(r){var vkn=normVKN(r['VKN']);var kod=String(r['Kalem numarası']||'').trim();if(!vkn||!kod)return;var key=vkn+'|'+kod;if(!fatIdx[key])fatIdx[key]=[];var t=getSatisTarihi(r);if(t)fatIdx[key].push(t);});
   var tekMap={};
   D.tek.forEach(function(r){var vkn=normVKN(r['VKN']);var kod=String(r['ItemCode']||'').trim();if(!vkn||!kod)return;var key=vkn+'|'+kod;if(!tekMap[key])tekMap[key]={firma:r['Müşteri/satıcı adı'],rep:r['SlpName'],kod,urun:r['ItemName'],teklifSayisi:0,sonTarih:null};tekMap[key].teklifSayisi++;var t=parseDate(r['Kayıt tarihi']||'');if(t&&(!tekMap[key].sonTarih||t>tekMap[key].sonTarih))tekMap[key].sonTarih=t;});
   var rows=Object.values(tekMap).map(function(r){var fatVar=(fatIdx[r.firma.trim().toUpperCase()+'|'+r.kod]||fatIdx[r.vkn+'|'+r.kod]||[]).length>0;return {Firma:r.firma,Temsilci:r.rep,UrunKod:r.kod,Urun:r.urun,TeklifSayisi:r.teklifSayisi,SonTeklif:fd(r.sonTarih),FaturadaVar:fatVar?'Evet':'Hayır'};});
@@ -3409,8 +3421,10 @@ function openMD(vkn){
   MD_CURRENT_VKN = vkn;
   document.getElementById('mdModalTitle').textContent = c.name;
 
-  // Müşteriye ait tüm verileri topla
-  var fatRows = D.fat.filter(function(r){ return normVKN(r['VKN'])===vkn; });
+  // Müşteriye ait tüm verileri topla — sadece faturalanmış satırlar
+  var fatRows = D.fat.filter(function(r){
+    return normVKN(r['VKN'])===vkn && r['FaturaTarihi'] && parseFloat(r['FatMiktar'])>0;
+  });
   var tekRows = D.tek.filter(function(r){ return normVKN(r['VKN'])===vkn; });
   var aktRows = D.akt.filter(function(r){ return normVKN(r['VKN']||'')===vkn; });
 
@@ -4052,7 +4066,7 @@ function exportAksiyonExcel(){
   var fatIdx = {};
   D.fat.forEach(function(r){
     var fn = (r['Muhatap adı']||'').trim().toUpperCase();
-    var t = parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');
+    var t = getSatisTarihi(r);
     if(!fn||!t) return;
     if(!fatIdx[fn] || t > fatIdx[fn]) fatIdx[fn] = t;
   });
@@ -4187,7 +4201,7 @@ function cfFatFilter(extraVknSet){
     if(CF.sektor && (!c||c.sek!==CF.sektor)) return false;
     if(CF.grup && (!c||c.grp!==CF.grup)) return false;
     if(CF.yr){
-      var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return false;
+      var d=getSatisTarihi(r); if(!d) return false;
       if(d.getFullYear()!==parseInt(CF.yr)) return false;
     }
     return true;
@@ -4205,7 +4219,7 @@ function populateAnalizFilters(){
   });
 
   var yillar=[...new Set(D.fat.map(function(r){
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); return d?d.getFullYear():null;
+    var d=getSatisTarihi(r); return d?d.getFullYear():null;
   }).filter(Boolean))].sort();
 
   ['an-yr1','an-yr2','cf-yr'].forEach(function(id){
@@ -4360,7 +4374,7 @@ function setChartTitle(t){
 function anFatFilter(vkn,yr1,yr2){
   return D.fat.filter(function(r){
     if(normVKN(r['VKN'])!==vkn) return false;
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return false;
+    var d=getSatisTarihi(r); if(!d) return false;
     var y=d.getFullYear();
     if(yr1&&y<parseInt(yr1)) return false;
     if(yr2&&y>parseInt(yr2)) return false;
@@ -4368,13 +4382,13 @@ function anFatFilter(vkn,yr1,yr2){
   });
 }
 function urunYilMatrix(rows){
-  var yillar=[...new Set(rows.map(function(r){var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');return d?d.getFullYear():null;}).filter(Boolean))].sort();
+  var yillar=[...new Set(rows.map(function(r){var d=getSatisTarihi(r);return d?d.getFullYear():null;}).filter(Boolean))].sort();
   var urunMap={};
   rows.forEach(function(r){
     var urun=r['Kalem/hizmet tanımı']||'Bilinmiyor';
     var kod=r['Kalem numarası']||'';
     var key=kod?kod+'|||'+urun:urun;
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); var y=d?d.getFullYear():null;
+    var d=getSatisTarihi(r); var y=d?d.getFullYear():null;
     var eur=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
     if(!urunMap[key]) urunMap[key]={kod:kod,urun:urun,toplam:0,yillar:{}};
     urunMap[key].toplam+=eur;
@@ -4625,7 +4639,7 @@ function renderAnalizWaterfall(){
 
   // Tüm yılları bul
   var allYears=[...new Set(rows.map(function(r){
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');return d?d.getFullYear():null;
+    var d=getSatisTarihi(r);return d?d.getFullYear():null;
   }).filter(Boolean))].sort();
 
   var compareYr1=yr1?parseInt(yr1):(allYears[allYears.length-2]||allYears[0]);
@@ -4635,7 +4649,7 @@ function renderAnalizWaterfall(){
   var vknMap1={}, vknMap2={};
   rows.forEach(function(r){
     var v=normVKN(r['VKN']); var eur=parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0;
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return;
+    var d=getSatisTarihi(r); if(!d) return;
     var y=d.getFullYear();
     if(y===compareYr1) vknMap1[v]=(vknMap1[v]||0)+eur;
     if(y===compareYr2) vknMap2[v]=(vknMap2[v]||0)+eur;
@@ -5005,8 +5019,8 @@ function renderAnalizMustKar(){
   var F_KOD='Kalem numarası';
   var F_URN='Kalem/hizmet tanımı';
 
-  function getEUR(r){  return parseFloat(r[F_EUR])||parseFloat(r['FatToplamEUR'])||0; }
-  function getTAR(r){  var d=r['FaturaTarihi']; return d?new Date(d):null; }
+  function getEUR(r){  return parseFloat(r['FatToplamEUR'])||0; }
+  function getTAR(r){  return r['FaturaTarihi'] ? new Date(r['FaturaTarihi']) : null; }
   function getKOD(r){  return String(r[F_KOD]||r['Ürün kodu']||'').trim(); }
   function getURN(r){  return String(r[F_URN]||r['Ürün adı']||r['Ürün Adı']||'').trim(); }
 
@@ -5023,8 +5037,13 @@ function renderAnalizMustKar(){
     });
   }
 
-  var fat1=D.fat.filter(function(r){return normVKN(r['VKN'])===vkn1;});
-  var fat2=D.fat.filter(function(r){return normVKN(r['VKN'])===vkn2;});
+  // SADECE faturalanmış satışlar - açık siparişleri çıkar
+  var fat1=D.fat.filter(function(r){
+    return normVKN(r['VKN'])===vkn1 && r['FaturaTarihi'] && parseFloat(r['FatMiktar'])>0;
+  });
+  var fat2=D.fat.filter(function(r){
+    return normVKN(r['VKN'])===vkn2 && r['FaturaTarihi'] && parseFloat(r['FatMiktar'])>0;
+  });
   var rows1=filtrele(fat1);
   var rows2=filtrele(fat2);
   // Yıl filtresi boş sonuç verdiyse tüm yıllar
@@ -5196,7 +5215,7 @@ function renderAnalizSektor(){
   var topN=parseInt(document.getElementById('an-topn').value)||20;
   var filtVkns=new Set(CUSTS.filter(function(c){return !sek||c.sek===sek;}).map(function(c){return c.vkn;}));
   var rows=cfFatFilter(filtVkns).filter(function(r){
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return false;
+    var d=getSatisTarihi(r); if(!d) return false;
     var y=d.getFullYear(); if(yr1&&y<parseInt(yr1)) return false; if(yr2&&y>parseInt(yr2)) return false; return true;
   });
   var sekMap={};
@@ -5208,9 +5227,9 @@ function renderAnalizSektor(){
   var ctx=document.getElementById('an-chart').getContext('2d');
   var top8=seks.slice(0,8);
   AN_CHART1=new Chart(ctx,{type:'bar',data:{labels:top8.map(function(e){return e[0];}),datasets:[{label:'Ciro EUR',data:top8.map(function(e){return Math.round(e[1]);}),backgroundColor:top8.map(function(_,i){return CHART_COLORS[i%CHART_COLORS.length];}),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:45}},y:{ticks:{callback:function(v){return fmt(v);}}}}}});
-  var yillar=[...new Set(rows.map(function(r){var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');return d?d.getFullYear():null;}).filter(Boolean))].sort();
+  var yillar=[...new Set(rows.map(function(r){var d=getSatisTarihi(r);return d?d.getFullYear():null;}).filter(Boolean))].sort();
   var sekYilMap={};
-  rows.forEach(function(r){var v=normVKN(r['VKN']);var c=CUSTS.find(function(x){return x.vkn===v;});var s=(c&&c.sek)||'Bilinmiyor';var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||'');var y=d?d.getFullYear():null;if(!y) return;if(!sekYilMap[s])sekYilMap[s]={};sekYilMap[s][y]=(sekYilMap[s][y]||0)+(parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0);});
+  rows.forEach(function(r){var v=normVKN(r['VKN']);var c=CUSTS.find(function(x){return x.vkn===v;});var s=(c&&c.sek)||'Bilinmiyor';var d=getSatisTarihi(r);var y=d?d.getFullYear():null;if(!y) return;if(!sekYilMap[s])sekYilMap[s]={};sekYilMap[s][y]=(sekYilMap[s][y]||0)+(parseFloat(r['FatToplamEUR']||r['Total_Eur']||0)||0);});
   document.getElementById('an-thead').innerHTML='<tr><th>Sektör</th>'+yillar.map(function(y){return '<th>'+y+'</th>';}).join('')+'<th>Toplam</th><th>% Pay</th></tr>';
   AN_EXPORT_DATA=[];
   document.getElementById('an-tbody').innerHTML=seks.slice(0,topN).map(function(e){
@@ -5231,7 +5250,7 @@ function renderAnalizGrup(){
   var topN=parseInt(document.getElementById('an-topn').value)||20;
   var filtVkns=new Set(CUSTS.filter(function(c){return !grp||c.grp===grp;}).map(function(c){return c.vkn;}));
   var rows=cfFatFilter(filtVkns).filter(function(r){
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return false;
+    var d=getSatisTarihi(r); if(!d) return false;
     var y=d.getFullYear(); if(yr1&&y<parseInt(yr1)) return false; if(yr2&&y>parseInt(yr2)) return false; return true;
   });
   var grpMap={};
@@ -5269,7 +5288,7 @@ function renderAnalizUrun(){
     if(sek&&(!c||c.sek!==sek)) return false;
     if(grp&&(!c||c.grp!==grp)) return false;
     if(urunQ){var ua=(r['Kalem/hizmet tanımı']||'').toLowerCase();var uk=(r['Kalem numarası']||'').toLowerCase();if(!ua.includes(urunQ)&&!uk.includes(urunQ)) return false;}
-    var d=parseDate(r['Kayıt tarihi']||r['FaturaTarihi']||r['SiparisTarihi']||''); if(!d) return false;
+    var d=getSatisTarihi(r); if(!d) return false;
     var y=d.getFullYear(); if(yr1&&y<parseInt(yr1)) return false; if(yr2&&y>parseInt(yr2)) return false;
     return true;
   });
