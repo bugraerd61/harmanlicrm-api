@@ -121,7 +121,6 @@ async function initDB() {
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lcl_tarih ON llm_cost_log(tarih DESC)');
 
-  // Önceki yanlış seed kayıtlarını temizle (idempotent)
   await pool.query("DELETE FROM llm_company_knowledge WHERE kategori = 'eski_temsilci'");
   await pool.query("DELETE FROM llm_company_knowledge WHERE kategori = 'numune_suresi' AND anahtar != 'genel'");
 
@@ -130,9 +129,7 @@ async function initDB() {
   console.log('DB ready');
 }
 
-// ── LLM bilgi dosyası seed (idempotent — tekrar çalışırsa duplikat yapmaz)
 async function seedLLMKnowledge() {
-  // Rakip markalar (v3 Bölüm 4.2.2 — 11 başlangıç markası, LLM yeni rakip görürse "Öğret" butonu ile büyür)
   const rakipler = [
     ['Henkel/Loctite', 'Ana rakip',         'Anaerobik yapıştırıcı, vidalı bağlantı (243, 271, 511, 577, 518)'],
     ['Henkel/Teroson', 'Ana rakip',         'MS polimer, PU, otomotiv onarım, sızdırmazlık'],
@@ -155,7 +152,6 @@ async function seedLLMKnowledge() {
     );
   }
 
-  // Karar verici kalıpları (v3 Bölüm 4.2.3)
   const kararVericiKaliplari = [
     ['karar_verici', 'YUKSEK', JSON.stringify({
       unvanlar: ['Satın alma şefi','Satın alma müdürü','Satın alma sorumlusu','Satın alma yetkilisi','Genel müdür','Patron','Sahip','Ortak','Firma sahibi','İşletme müdürü'],
@@ -183,16 +179,11 @@ async function seedLLMKnowledge() {
     );
   }
 
-  // Numune süreleri — Buğra'nın onayı (4 May 2026): tüm numuneler için tek kural
   await pool.query(
     `INSERT INTO llm_company_knowledge (kategori, anahtar, deger, notlar)
      VALUES ('numune_suresi', 'genel', '7-14', '10. gün ilk hatırlatma — tüm ürün tipleri için tek kural')
      ON CONFLICT (kategori, anahtar) DO NOTHING`
   );
-
-  // NOT: Eski temsilciler kasten seed edilmiyor.
-  // SAP OSLP.Active='N' filtresi zaten ayrılmış temsilcileri otomatik yakalıyor.
-  // Manuel liste tutulmuyor — SAP-driven mimari prensibi.
 }
 
 function auth(req, res, next) {
@@ -211,7 +202,6 @@ function adminOnly(req, res, next) {
   next();
 }
 
-// n8n için API key auth (X-API-Key header)
 function n8nAuth(req, res, next) {
   var key = req.headers['x-api-key'];
   if (!key || key !== N8N_API_KEY) return res.status(401).json({ error: 'Geçersiz API key' });
@@ -466,9 +456,8 @@ app.post('/api/ai', auth, function(req, res) {
   reqAI.end();
 });
 
-// ── LLM ENDPOINTS (n8n için, X-API-Key auth) ───────────────────────
+// ── LLM ENDPOINTS — n8n için (X-API-Key auth) ──────────────────────
 
-// GET /api/llm/knowledge?kategori=rakip → bilgi dosyasını oku
 app.get('/api/llm/knowledge', n8nAuth, function(req, res) {
   var kategori = req.query.kategori;
   var sql, params;
@@ -484,7 +473,6 @@ app.get('/api/llm/knowledge', n8nAuth, function(req, res) {
     .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
-// POST /api/llm/oneri → LLM aksiyon önerisini DB'ye yaz
 app.post('/api/llm/oneri', n8nAuth, function(req, res) {
   var b = req.body;
   pool.query(
@@ -507,7 +495,6 @@ app.post('/api/llm/oneri', n8nAuth, function(req, res) {
   });
 });
 
-// POST /api/llm/cost → token + maliyet logu
 app.post('/api/llm/cost', n8nAuth, function(req, res) {
   var b = req.body;
   pool.query(
@@ -537,7 +524,9 @@ app.post('/api/llm/cost', n8nAuth, function(req, res) {
   });
 });
 
-// GET /api/llm/cost/ozet → günlük toplam maliyet özeti (admin için, JWT auth)
+// ── LLM ADMIN ENDPOINTS — Web sayfası için (JWT auth, admin only) ──
+
+// Cost özeti — günlük toplam
 app.get('/api/llm/cost/ozet', auth, adminOnly, function(req, res) {
   var gun = parseInt(req.query.gun) || 30;
   pool.query(
@@ -554,6 +543,77 @@ app.get('/api/llm/cost/ozet', auth, adminOnly, function(req, res) {
     [gun]
   ).then(function(r) {
     res.json(r.rows);
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Önerileri listele
+app.get('/api/llm/oneriler', auth, adminOnly, function(req, res) {
+  pool.query(
+    `SELECT id, aktivite_no, card_code, musteri, sistem, temsilci, aktivite_tarihi,
+            llm_yorum, sicaklik_etiketi, asama, kalite_skoru, sonuc_onerisi, sap_sonuc, cakisma,
+            onerilen_aksiyonlar, durum, onaylayan_email, onay_tarihi, duzelten_metin, red_sebebi,
+            olusturma_tarihi
+     FROM llm_oneriler
+     ORDER BY olusturma_tarihi DESC
+     LIMIT 500`
+  ).then(function(r) {
+    res.json(r.rows);
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Öneri onayla
+app.put('/api/llm/oneri/:id/onayla', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  pool.query(
+    `UPDATE llm_oneriler
+     SET durum='approved', onaylayan_email=$1, onay_tarihi=NOW()
+     WHERE id=$2
+     RETURNING id, durum`,
+    [req.user.email || 'admin', id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).json({ error: 'Öneri bulunamadı' });
+    res.json({ success: true, id: r.rows[0].id, durum: r.rows[0].durum });
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Öneri reddet
+app.put('/api/llm/oneri/:id/reddet', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  var sebep = req.body.red_sebebi || '';
+  pool.query(
+    `UPDATE llm_oneriler
+     SET durum='rejected', onaylayan_email=$1, onay_tarihi=NOW(), red_sebebi=$2
+     WHERE id=$3
+     RETURNING id, durum`,
+    [req.user.email || 'admin', sebep, id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).json({ error: 'Öneri bulunamadı' });
+    res.json({ success: true, id: r.rows[0].id, durum: r.rows[0].durum });
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Öneri düzelt
+app.put('/api/llm/oneri/:id/duzelt', auth, adminOnly, function(req, res) {
+  var id = req.params.id;
+  var metin = req.body.duzelten_metin || '';
+  if (!metin) return res.status(400).json({ error: 'Düzeltme metni gerekli' });
+  pool.query(
+    `UPDATE llm_oneriler
+     SET durum='approved', onaylayan_email=$1, onay_tarihi=NOW(), duzelten_metin=$2
+     WHERE id=$3
+     RETURNING id, durum`,
+    [req.user.email || 'admin', metin, id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).json({ error: 'Öneri bulunamadı' });
+    res.json({ success: true, id: r.rows[0].id, durum: r.rows[0].durum });
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
