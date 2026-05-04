@@ -60,8 +60,6 @@ async function initDB() {
   )`);
   await pool.query('UPDATE users SET active=TRUE, role=$1 WHERE email=$2', ['admin', ADMIN_EMAIL]);
 
-  // ── LLM AKTIVITE SISTEMI TABLOLARI ─────────────────────────────────
-
   await pool.query(`CREATE TABLE IF NOT EXISTS llm_company_knowledge (
     id SERIAL PRIMARY KEY,
     kategori VARCHAR(50) NOT NULL,
@@ -208,8 +206,6 @@ function n8nAuth(req, res, next) {
   next();
 }
 
-// ── API ROUTES ────────────────────────────────────────────────────────
-
 app.get('/api/status', function(req, res) {
   res.json({ status: 'HarmanliCRM API calisiyor' });
 });
@@ -244,7 +240,7 @@ app.post('/api/login', function(req, res) {
     if (!result.rows[0].active) return res.status(403).json({ error: 'Hesabınız henüz onaylanmadı.' });
     return bcrypt.compare(password, result.rows[0].password).then(function(valid) {
       if (!valid) return res.status(400).json({ error: 'Hatali sifre' });
-      var token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, JWT_SECRET);
+      var token = jwt.sign({ id: result.rows[0].id, email: result.rows[0].email, role: result.rows[0].role }, JWT_SECRET);
       res.json({ token, user: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name, role: result.rows[0].role } });
     });
   }).catch(function(err) {
@@ -526,7 +522,6 @@ app.post('/api/llm/cost', n8nAuth, function(req, res) {
 
 // ── LLM ADMIN ENDPOINTS — Web sayfası için (JWT auth, admin only) ──
 
-// Cost özeti — günlük toplam
 app.get('/api/llm/cost/ozet', auth, adminOnly, function(req, res) {
   var gun = parseInt(req.query.gun) || 30;
   pool.query(
@@ -548,7 +543,6 @@ app.get('/api/llm/cost/ozet', auth, adminOnly, function(req, res) {
   });
 });
 
-// Önerileri listele
 app.get('/api/llm/oneriler', auth, adminOnly, function(req, res) {
   pool.query(
     `SELECT id, aktivite_no, card_code, musteri, sistem, temsilci, aktivite_tarihi,
@@ -565,7 +559,6 @@ app.get('/api/llm/oneriler', auth, adminOnly, function(req, res) {
   });
 });
 
-// Öneri onayla
 app.put('/api/llm/oneri/:id/onayla', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   pool.query(
@@ -582,7 +575,6 @@ app.put('/api/llm/oneri/:id/onayla', auth, adminOnly, function(req, res) {
   });
 });
 
-// Öneri reddet
 app.put('/api/llm/oneri/:id/reddet', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   var sebep = req.body.red_sebebi || '';
@@ -600,7 +592,6 @@ app.put('/api/llm/oneri/:id/reddet', auth, adminOnly, function(req, res) {
   });
 });
 
-// Öneri düzelt
 app.put('/api/llm/oneri/:id/duzelt', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   var metin = req.body.duzelten_metin || '';
@@ -614,6 +605,30 @@ app.put('/api/llm/oneri/:id/duzelt', auth, adminOnly, function(req, res) {
   ).then(function(r) {
     if (!r.rows[0]) return res.status(404).json({ error: 'Öneri bulunamadı' });
     res.json({ success: true, id: r.rows[0].id, durum: r.rows[0].durum });
+  }).catch(function(err) {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// LLM Bilgi Dosyasına yeni kayıt ekle (Öğret butonu için, admin JWT auth)
+app.post('/api/llm/knowledge', auth, adminOnly, function(req, res) {
+  var b = req.body;
+  if (!b.kategori || !b.anahtar) return res.status(400).json({ error: 'Kategori ve anahtar zorunlu' });
+  var izinliKategoriler = ['rakip', 'karar_verici_kalibi', 'numune_suresi'];
+  if (izinliKategoriler.indexOf(b.kategori) === -1) {
+    return res.status(400).json({ error: 'Geçersiz kategori' });
+  }
+  pool.query(
+    `INSERT INTO llm_company_knowledge (kategori, anahtar, deger, notlar, olusturan)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (kategori, anahtar) DO UPDATE
+       SET deger = EXCLUDED.deger,
+           notlar = EXCLUDED.notlar,
+           aktif = TRUE
+     RETURNING id, kategori, anahtar`,
+    [b.kategori, b.anahtar, b.deger || null, b.notlar || null, req.user.email || 'admin']
+  ).then(function(r) {
+    res.json({ success: true, id: r.rows[0].id, kategori: r.rows[0].kategori, anahtar: r.rows[0].anahtar });
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
