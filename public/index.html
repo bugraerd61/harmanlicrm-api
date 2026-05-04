@@ -280,6 +280,8 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
   <button class="tab" onclick="sw('temsilci')">👤 Temsilci</button>
   <button class="tab" onclick="sw('db')">☁️ Veriler</button>
   <button class="tab" id="adminTab" style="display:none" onclick="sw('admin')">👤 Kullanıcılar</button>
+  <button class="tab" id="llmOnaylarTab" style="display:none" onclick="sw('llmonaylar')">🤖 LLM Onaylar</button>
+  <button class="tab" id="llmMaliyetTab" style="display:none" onclick="sw('llmmaliyet')">💰 LLM Maliyet</button>
   <button class="tab" onclick="sw('analiz')">📊 Analiz</button>
 </div>
 
@@ -554,6 +556,49 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
   </div>
 </div>
 
+<!-- LLM ONAYLAR PANELİ -->
+<div id="p-llmonaylar" class="panel">
+  <div class="st">🤖 LLM Aksiyon Önerileri</div>
+  <div class="aw aw-i" style="margin-bottom:12px">LLM'in günlük aktivitelerden ürettiği aksiyon önerileri. Onayla — gönderilir, Düzelt — değiştirip onaylarsın, Reddet — silinir, Öğret — yeni bilgi DB'ye eklenir.</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    <button class="btn btn-p" onclick="loadLLMOneriler()">🔄 Yenile</button>
+    <select id="llmOFilterDurum" onchange="renderLLMOneriler()" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:5px">
+      <option value="pending">Onay Bekleyen</option>
+      <option value="approved">Onaylanan</option>
+      <option value="rejected">Reddedilen</option>
+      <option value="">Tümü</option>
+    </select>
+    <select id="llmOFilterSicaklik" onchange="renderLLMOneriler()" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:5px">
+      <option value="">Tüm Sıcaklık</option>
+      <option value="SICAK">SICAK</option>
+      <option value="ILIK">ILIK</option>
+      <option value="SOGUK">SOGUK</option>
+      <option value="RISK">RISK</option>
+      <option value="KAYIP">KAYIP</option>
+    </select>
+    <span id="llmOSayac" style="font-size:12px;color:var(--text2);margin-left:auto"></span>
+  </div>
+  <div id="llmOList"></div>
+</div>
+
+<!-- LLM MALİYET PANELİ -->
+<div id="p-llmmaliyet" class="panel">
+  <div class="st">💰 LLM Maliyet Takibi</div>
+  <div class="aw aw-i" style="margin-bottom:12px">Günlük LLM (Claude Opus 4.7) çağrılarının token kullanımı ve USD maliyeti. Veriler her LLM çağrısı sonrası otomatik olarak DB'ye yazılır.</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <button class="btn btn-p" onclick="loadLLMMaliyet()">🔄 Yenile</button>
+    <select id="llmMGun" onchange="loadLLMMaliyet()" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:5px">
+      <option value="7">Son 7 gün</option>
+      <option value="30" selected>Son 30 gün</option>
+      <option value="90">Son 90 gün</option>
+    </select>
+  </div>
+  <div class="mg" id="llmMMetrics" style="margin-bottom:12px"></div>
+  <div class="tw"><table><thead><tr>
+    <th>Tarih</th><th>Çağrı</th><th>Input Token</th><th>Cached</th><th>Output Token</th><th>USD</th><th>TL (~38₺)</th>
+  </tr></thead><tbody id="llmMBody"></tbody></table></div>
+</div>
+
 <!-- ANALİZ PANELİ — Power BI Özellikleri -->
 <div id="p-analiz" class="panel">
 
@@ -811,6 +856,8 @@ function showApp(){
   document.getElementById('userInfo').textContent = currentUser ? '👤 '+(currentUser.name||currentUser.email) : '';
   if(currentUser && currentUser.role === 'admin'){
     document.getElementById('adminTab').style.display = 'block';
+    document.getElementById('llmOnaylarTab').style.display = 'block';
+    document.getElementById('llmMaliyetTab').style.display = 'block';
   }
   // Kayıtlı API anahtarını yükle
   var savedKey = localStorage.getItem('crm_apikey');
@@ -859,6 +906,195 @@ function sw(id){
   if(id==='upsell') renderUpsellTab();
   if(id==='teklifanaliz') renderTeklifAnaliz();
   if(id==='analiz') { if(typeof setAnalizView==='function') setAnalizView(AN_VIEW||'dashboard'); }
+  if(id==='llmonaylar') loadLLMOneriler();
+  if(id==='llmmaliyet') loadLLMMaliyet();
+}
+
+// ===== LLM MALİYET =====
+var USD_TO_TL = 38; // Yaklaşık kur, API çağrısı eklenebilir ileride
+
+function loadLLMMaliyet(){
+  var gun = document.getElementById('llmMGun').value || 30;
+  var body = document.getElementById('llmMBody');
+  var metrics = document.getElementById('llmMMetrics');
+  body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">Yükleniyor...</td></tr>';
+  metrics.innerHTML = '';
+  fetch(API+'/api/llm/cost/ozet?gun='+gun, {headers:{Authorization:'Bearer '+token}})
+    .then(function(r){return r.json();})
+    .then(function(rows){
+      if(!Array.isArray(rows)){
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">'+(rows.error||'Veri yok')+'</td></tr>';
+        return;
+      }
+      if(rows.length === 0){
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">Henüz LLM çağrısı kaydedilmemiş.</td></tr>';
+        return;
+      }
+      // Toplam metrikler
+      var topCagri = 0, topInput = 0, topCached = 0, topOutput = 0, topUsd = 0;
+      rows.forEach(function(r){
+        topCagri += parseInt(r.cagri_sayisi)||0;
+        topInput += parseInt(r.toplam_input)||0;
+        topCached += parseInt(r.toplam_cached)||0;
+        topOutput += parseInt(r.toplam_output)||0;
+        topUsd += parseFloat(r.toplam_usd)||0;
+      });
+      metrics.innerHTML =
+        '<div class="m"><div class="ml">Toplam Çağrı</div><div class="mv">'+topCagri.toLocaleString('tr-TR')+'</div></div>' +
+        '<div class="m"><div class="ml">Input Token</div><div class="mv">'+topInput.toLocaleString('tr-TR')+'</div></div>' +
+        '<div class="m"><div class="ml">Output Token</div><div class="mv">'+topOutput.toLocaleString('tr-TR')+'</div></div>' +
+        '<div class="m"><div class="ml">Toplam USD</div><div class="mv">$'+topUsd.toFixed(2)+'</div></div>' +
+        '<div class="m"><div class="ml">Toplam TL (~'+USD_TO_TL+'₺)</div><div class="mv">'+(topUsd*USD_TO_TL).toFixed(0)+' ₺</div></div>';
+      // Tablo
+      var html = '';
+      rows.forEach(function(r){
+        var tarih = (r.tarih||'').substring(0,10);
+        var usd = parseFloat(r.toplam_usd)||0;
+        var tl = usd * USD_TO_TL;
+        html += '<tr>' +
+          '<td>'+tarih+'</td>' +
+          '<td>'+(r.cagri_sayisi||0)+'</td>' +
+          '<td>'+(parseInt(r.toplam_input)||0).toLocaleString('tr-TR')+'</td>' +
+          '<td>'+(parseInt(r.toplam_cached)||0).toLocaleString('tr-TR')+'</td>' +
+          '<td>'+(parseInt(r.toplam_output)||0).toLocaleString('tr-TR')+'</td>' +
+          '<td>$'+usd.toFixed(4)+'</td>' +
+          '<td>'+tl.toFixed(2)+' ₺</td>' +
+        '</tr>';
+      });
+      body.innerHTML = html;
+    })
+    .catch(function(e){
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#dc2626">Hata: '+e.message+'</td></tr>';
+    });
+}
+
+// ===== LLM ONAYLAR =====
+var LLM_ONERILER_CACHE = [];
+
+function loadLLMOneriler(){
+  var list = document.getElementById('llmOList');
+  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text2)">Yükleniyor...</div>';
+  fetch(API+'/api/llm/oneriler', {headers:{Authorization:'Bearer '+token}})
+    .then(function(r){return r.json();})
+    .then(function(rows){
+      if(!Array.isArray(rows)){
+        list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text2)">'+(rows.error||'Veri yok')+'</div>';
+        return;
+      }
+      LLM_ONERILER_CACHE = rows;
+      renderLLMOneriler();
+    })
+    .catch(function(e){
+      list.innerHTML = '<div style="text-align:center;padding:30px;color:#dc2626">Hata: '+e.message+'</div>';
+    });
+}
+
+function renderLLMOneriler(){
+  var list = document.getElementById('llmOList');
+  var sayac = document.getElementById('llmOSayac');
+  var fDurum = document.getElementById('llmOFilterDurum').value;
+  var fSicaklik = document.getElementById('llmOFilterSicaklik').value;
+  var rows = LLM_ONERILER_CACHE.filter(function(r){
+    if(fDurum && r.durum !== fDurum) return false;
+    if(fSicaklik && r.sicaklik_etiketi !== fSicaklik) return false;
+    return true;
+  });
+  sayac.textContent = rows.length + ' öneri';
+  if(rows.length === 0){
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text2)">Bu filtreyle kayıt bulunamadı.</div>';
+    return;
+  }
+  var sicaklikRenk = {
+    'SICAK':'#dc2626','ILIK':'#f59e0b','SOGUK':'#3b82f6','RISK':'#9333ea','KAYIP':'#6b7280'
+  };
+  var html = rows.map(function(r){
+    var renk = sicaklikRenk[r.sicaklik_etiketi]||'#6b7280';
+    var yorum = r.llm_yorum || {};
+    var aks = r.onerilen_aksiyonlar || [];
+    var aksHtml = aks.map(function(a){
+      return '<div style="font-size:12px;padding:6px 10px;background:#f8fafc;border-left:3px solid #1E3A8A;margin:4px 0;border-radius:3px">' +
+        '<b>'+(a.tip||'')+'</b> · '+(a.alici||'')+' · '+(a.vade_gun||0)+' gün<br>' +
+        '<span style="color:var(--text2)">'+(a.aciklama||'')+'</span>' +
+      '</div>';
+    }).join('');
+    var durumBadge = r.durum === 'pending' ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⏳ Onay Bekliyor</span>' :
+                     r.durum === 'approved' ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✅ Onaylandı</span>' :
+                     r.durum === 'rejected' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">❌ Reddedildi</span>' :
+                     '<span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">'+r.durum+'</span>';
+    var butonlar = r.durum === 'pending' ?
+      '<div style="display:flex;gap:6px;margin-top:10px">' +
+        '<button class="btn btn-g" style="font-size:12px;padding:6px 12px" onclick="llmOOnayla('+r.id+')">✅ Onayla</button>' +
+        '<button class="btn" style="font-size:12px;padding:6px 12px" onclick="llmODuzelt('+r.id+')">✏️ Düzelt</button>' +
+        '<button class="btn btn-r" style="font-size:12px;padding:6px 12px" onclick="llmOReddet('+r.id+')">❌ Reddet</button>' +
+      '</div>' : '';
+    return '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-weight:600;color:#1E3A8A;font-size:14px">'+(r.musteri||'?')+' <span style="color:var(--text2);font-weight:400;font-size:12px">('+(r.card_code||'')+')</span></div>' +
+          '<div style="font-size:11px;color:var(--text2);margin-top:2px">Aktivite #'+r.aktivite_no+' · '+(r.temsilci||'?')+' · '+((r.aktivite_tarihi||'').substring(0,10))+'</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="display:inline-block;padding:3px 10px;background:'+renk+';color:#fff;border-radius:10px;font-size:11px;font-weight:700">'+(r.sicaklik_etiketi||'?')+'</div>' +
+          '<div style="margin-top:4px">'+durumBadge+'</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:8px 0;font-size:12px">' +
+        '<div><span style="color:var(--text2)">Aşama:</span> <b>'+(r.asama||'?')+'</b></div>' +
+        '<div><span style="color:var(--text2)">Kalite:</span> <b>'+(r.kalite_skoru||'?')+'</b></div>' +
+        '<div><span style="color:var(--text2)">Sonuç:</span> <b>'+(r.sonuc_onerisi||'?')+'</b></div>' +
+      '</div>' +
+      (yorum.ozet ? '<div style="font-size:13px;padding:8px 10px;background:#f8fafc;border-radius:5px;margin:8px 0;color:#1E3A8A">'+yorum.ozet+'</div>' : '') +
+      (aksHtml ? '<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Önerilen Aksiyonlar:</div>'+aksHtml+'</div>' : '') +
+      butonlar +
+    '</div>';
+  }).join('');
+  list.innerHTML = html;
+}
+
+function llmOOnayla(id){
+  if(!confirm('Bu LLM önerisi onaylansın mı?')) return;
+  fetch(API+'/api/llm/oneri/'+id+'/onayla', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.success){ showToast('✅ Onaylandı'); loadLLMOneriler(); }
+    else alert('Hata: '+(d.error||'Bilinmeyen'));
+  })
+  .catch(function(e){alert('Hata: '+e.message);});
+}
+
+function llmOReddet(id){
+  var sebep = prompt('Red sebebi (opsiyonel):');
+  if(sebep === null) return; // iptal
+  fetch(API+'/api/llm/oneri/'+id+'/reddet', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body: JSON.stringify({red_sebebi: sebep||''})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.success){ showToast('❌ Reddedildi'); loadLLMOneriler(); }
+    else alert('Hata: '+(d.error||'Bilinmeyen'));
+  })
+  .catch(function(e){alert('Hata: '+e.message);});
+}
+
+function llmODuzelt(id){
+  var d = prompt('Düzeltme açıklaması:');
+  if(!d) return;
+  fetch(API+'/api/llm/oneri/'+id+'/duzelt', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body: JSON.stringify({duzelten_metin: d})
+  })
+  .then(function(r){return r.json();})
+  .then(function(res){
+    if(res.success){ showToast('✏️ Düzeltildi'); loadLLMOneriler(); }
+    else alert('Hata: '+(res.error||'Bilinmeyen'));
+  })
+  .catch(function(e){alert('Hata: '+e.message);});
 }
 
 // ===== FILE UPLOAD =====
