@@ -58,6 +58,71 @@ async function initDB() {
     updated_at TIMESTAMP DEFAULT NOW()
   )`);
   await pool.query('UPDATE users SET active=TRUE, role=$1 WHERE email=$2', ['admin', ADMIN_EMAIL]);
+
+  // ── LLM AKTIVITE SISTEMI TABLOLARI ─────────────────────────────────
+
+  // Şirket bilgi dosyası — rakipler, bayi grupları, kalıplar, eski temsilciler
+  await pool.query(`CREATE TABLE IF NOT EXISTS llm_company_knowledge (
+    id SERIAL PRIMARY KEY,
+    kategori VARCHAR(50) NOT NULL,
+    anahtar VARCHAR(200) NOT NULL,
+    deger TEXT,
+    notlar TEXT,
+    aktif BOOLEAN DEFAULT TRUE,
+    olusturan VARCHAR(100) DEFAULT 'Buğra',
+    olusturma_tarihi TIMESTAMP DEFAULT NOW(),
+    son_kullanim TIMESTAMP,
+    kullanim_sayisi INTEGER DEFAULT 0,
+    UNIQUE(kategori, anahtar)
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lck_kategori ON llm_company_knowledge(kategori) WHERE aktif=TRUE');
+
+  // LLM önerileri — onay bekleyen aksiyonlar
+  await pool.query(`CREATE TABLE IF NOT EXISTS llm_oneriler (
+    id SERIAL PRIMARY KEY,
+    aktivite_no INTEGER NOT NULL,
+    card_code VARCHAR(20) NOT NULL,
+    musteri VARCHAR(255),
+    sistem CHAR(1),
+    temsilci VARCHAR(255),
+    aktivite_tarihi TIMESTAMP,
+    llm_yorum JSONB,
+    sicaklik_etiketi VARCHAR(20),
+    asama VARCHAR(50),
+    kalite_skoru CHAR(1),
+    sonuc_onerisi VARCHAR(50),
+    sap_sonuc VARCHAR(50),
+    cakisma BOOLEAN DEFAULT FALSE,
+    onerilen_aksiyonlar JSONB,
+    durum VARCHAR(20) DEFAULT 'pending',
+    onaylayan_email VARCHAR(255),
+    onay_tarihi TIMESTAMP,
+    duzelten_metin TEXT,
+    red_sebebi TEXT,
+    olusturma_tarihi TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_durum ON llm_oneriler(durum, olusturma_tarihi DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_card ON llm_oneriler(card_code)');
+
+  // LLM maliyet logu — günlük token + USD takibi
+  await pool.query(`CREATE TABLE IF NOT EXISTS llm_cost_log (
+    id SERIAL PRIMARY KEY,
+    tarih DATE DEFAULT CURRENT_DATE,
+    zaman TIMESTAMP DEFAULT NOW(),
+    workflow_adi VARCHAR(100),
+    aktivite_no INTEGER,
+    card_code VARCHAR(20),
+    model VARCHAR(50),
+    input_tokens INTEGER DEFAULT 0,
+    cached_input_tokens INTEGER DEFAULT 0,
+    cache_creation_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    hesaplanan_maliyet_usd NUMERIC(10,6),
+    basarili BOOLEAN DEFAULT TRUE,
+    hata_mesaji TEXT
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lcl_tarih ON llm_cost_log(tarih DESC)');
+
   console.log('DB ready');
 }
 
@@ -85,11 +150,9 @@ app.get('/api/status', function(req, res) {
 
 app.post('/api/register', function(req, res) {
   var email = req.body.email, password = req.body.password, name = req.body.name;
-  // Sadece kullanıcı tablosu boşsa (ilk kurulum) veya admin email ise kayıt kabul edilir
   pool.query('SELECT COUNT(*)::int AS cnt FROM users').then(function(countResult) {
     var userCount = countResult.rows[0].cnt;
     var isAdmin = (email === ADMIN_EMAIL);
-    // Sistemde kullanıcı varsa ve admin email değilse → kayıt kapalı
     if (userCount > 0 && !isAdmin) {
       return res.status(403).json({ error: 'Yeni kayıt alımı kapalıdır. Hesap için yöneticinize başvurun.' });
     }
@@ -141,14 +204,13 @@ app.delete('/api/users/:id', auth, adminOnly, function(req, res) {
     .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
-// Admin: Yeni kullanıcı oluştur (kayıt formu yerine)
 app.post('/api/users', auth, adminOnly, function(req, res) {
   var email = req.body.email, password = req.body.password, name = req.body.name;
   var phone = req.body.phone || null;
   var department = req.body.department || null;
   var region = req.body.region || null;
   var role = req.body.role || 'user';
-  var active = req.body.active !== undefined ? req.body.active : true; // admin oluşturduysa otomatik aktif
+  var active = req.body.active !== undefined ? req.body.active : true;
 
   if (!email || !password) return res.status(400).json({ error: 'E-posta ve şifre zorunlu' });
   if (password.length < 4) return res.status(400).json({ error: 'Şifre en az 4 karakter olmalı' });
@@ -166,7 +228,6 @@ app.post('/api/users', auth, adminOnly, function(req, res) {
   });
 });
 
-// Admin: Kullanıcı bilgilerini güncelle (ad, email, telefon, departman, bölge)
 app.put('/api/users/:id', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   var name = req.body.name;
@@ -187,7 +248,6 @@ app.put('/api/users/:id', auth, adminOnly, function(req, res) {
   });
 });
 
-// Admin: Şifre sıfırla
 app.put('/api/users/:id/password', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   var newPassword = req.body.password;
@@ -203,13 +263,11 @@ app.put('/api/users/:id/password', auth, adminOnly, function(req, res) {
   });
 });
 
-// Admin: Rol değiştir
 app.put('/api/users/:id/role', auth, adminOnly, function(req, res) {
   var id = req.params.id;
   var role = req.body.role;
   if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'Geçersiz rol' });
 
-  // Kendi rolünü değiştirmesini engelle (kilitlenme riski)
   if (parseInt(id) === req.user.id) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
 
   pool.query('UPDATE users SET role=$1 WHERE id=$2 RETURNING id, email, name, role', [role, id])
@@ -220,7 +278,6 @@ app.put('/api/users/:id/role', auth, adminOnly, function(req, res) {
     .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
-// Admin: Tek kullanıcı detay
 app.get('/api/users/:id', auth, adminOnly, function(req, res) {
   pool.query('SELECT id, email, name, role, active, phone, department, region, created_at FROM users WHERE id=$1', [req.params.id])
     .then(function(r) {
