@@ -599,6 +599,86 @@ select,input[type=text]{padding:5px 8px;border:1px solid var(--border2);border-r
   </tr></thead><tbody id="llmMBody"></tbody></table></div>
 </div>
 
+<!-- ÖĞRET MODAL — Bilgi dosyasına yeni kayıt ekle -->
+<div id="ogretModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;justify-content:center;align-items:center" onclick="if(event.target===this)closeOgretModal()">
+  <div style="background:#fff;border-radius:10px;max-width:600px;width:92%;max-height:90vh;overflow-y:auto">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0;font-size:16px;color:#7c3aed">📚 Bilgi Dosyasına Öğret</h2>
+      <button onclick="closeOgretModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2)">×</button>
+    </div>
+    <div style="padding:18px">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:12px">Bağlam: <span id="ogretContext"></span></div>
+      <div id="ogretFormErr" class="aw aw-r" style="display:none;margin-bottom:10px"></div>
+
+      <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+        <div class="lbl" style="font-size:13px;color:var(--text2)">Kategori *</div>
+        <div class="val">
+          <select id="ogretKategori" onchange="ogretKategoriDegisti()" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px">
+            <option value="rakip">🏢 Rakip Marka</option>
+            <option value="karar_verici_kalibi">👤 Karar Verici Kalıbı</option>
+            <option value="numune_suresi">⏱ Numune Süresi</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+        <div class="lbl" style="font-size:13px;color:var(--text2)" id="ogretAnahtarLbl">Marka adı *</div>
+        <div class="val"><input type="text" id="ogretAnahtar" placeholder="örn: Winkel" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+      </div>
+
+      <!-- RAKİP ALANLARI -->
+      <div id="ogretRakipFields">
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2)">Segment *</div>
+          <div class="val">
+            <select id="ogretSegment" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px">
+              <option>Ana rakip</option>
+              <option>Orta-üst rakip</option>
+              <option selected>Orta rakip</option>
+              <option>Orta segment rakip</option>
+              <option>Premium rakip</option>
+              <option>Niş rakip</option>
+            </select>
+          </div>
+        </div>
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:start;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2);padding-top:7px">Ürün/Notlar</div>
+          <div class="val"><textarea id="ogretUrunler" rows="2" placeholder="örn: Anaerobik yapıştırıcı, sızdırmazlık" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit"></textarea></div>
+        </div>
+      </div>
+
+      <!-- KARAR VERİCİ KALIBI ALANLARI -->
+      <div id="ogretKVFields" style="display:none">
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:start;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2);padding-top:7px">Ünvanlar *</div>
+          <div class="val"><textarea id="ogretUnvanlar" rows="2" placeholder="Virgülle ayır: Mühendis, Tekniker, Operatör" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit"></textarea></div>
+        </div>
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2)">Aksiyon</div>
+          <div class="val"><input type="text" id="ogretAksiyon" placeholder="örn: Karar vericiye yönlendir" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+        </div>
+      </div>
+
+      <!-- NUMUNE SÜRESİ ALANLARI -->
+      <div id="ogretNumuneFields" style="display:none">
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2)">Süre (gün) *</div>
+          <div class="val"><input type="text" id="ogretSure" value="7-14" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+        </div>
+        <div class="md-field-row" style="grid-template-columns:130px 1fr;display:grid;gap:10px;align-items:center;margin-bottom:10px">
+          <div class="lbl" style="font-size:13px;color:var(--text2)">Hatırlatma</div>
+          <div class="val"><input type="text" id="ogretHatirlatma" value="10. gün ilk hatırlatma" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-size:13px"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <button class="btn" onclick="closeOgretModal()">İptal</button>
+        <button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="ogretKaydet()">📚 Kaydet</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ANALİZ PANELİ — Power BI Özellikleri -->
 <div id="p-analiz" class="panel">
 
@@ -1022,11 +1102,15 @@ function renderLLMOneriler(){
                      r.durum === 'rejected' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">❌ Reddedildi</span>' :
                      '<span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">'+r.durum+'</span>';
     var butonlar = r.durum === 'pending' ?
-      '<div style="display:flex;gap:6px;margin-top:10px">' +
+      '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
         '<button class="btn btn-g" style="font-size:12px;padding:6px 12px" onclick="llmOOnayla('+r.id+')">✅ Onayla</button>' +
         '<button class="btn" style="font-size:12px;padding:6px 12px" onclick="llmODuzelt('+r.id+')">✏️ Düzelt</button>' +
         '<button class="btn btn-r" style="font-size:12px;padding:6px 12px" onclick="llmOReddet('+r.id+')">❌ Reddet</button>' +
-      '</div>' : '';
+        '<button class="btn" style="font-size:12px;padding:6px 12px;background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="llmOOgret('+r.id+')">📚 Öğret</button>' +
+      '</div>' :
+      '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
+        '<button class="btn" style="font-size:12px;padding:6px 12px;background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="llmOOgret('+r.id+')">📚 Öğret</button>' +
+      '</div>';
     return '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">' +
         '<div>' +
@@ -1095,6 +1179,97 @@ function llmODuzelt(id){
     else alert('Hata: '+(res.error||'Bilinmeyen'));
   })
   .catch(function(e){alert('Hata: '+e.message);});
+}
+
+// ===== ÖĞRET — Bilgi dosyasına yeni kayıt ekle =====
+function llmOOgret(id){
+  // Hangi öneri için açıldı, üst kısımda göster
+  var oneri = LLM_ONERILER_CACHE.find(function(r){return r.id === id;});
+  document.getElementById('ogretContext').textContent = oneri ? 
+    (oneri.musteri + ' (Aktivite #' + oneri.aktivite_no + ')') : 
+    'Bilgi dosyasına yeni kayıt';
+  // Formu sıfırla
+  document.getElementById('ogretKategori').value = 'rakip';
+  document.getElementById('ogretAnahtar').value = '';
+  document.getElementById('ogretSegment').value = 'Orta rakip';
+  document.getElementById('ogretUrunler').value = '';
+  document.getElementById('ogretUnvanlar').value = '';
+  document.getElementById('ogretAksiyon').value = '';
+  document.getElementById('ogretSure').value = '7-14';
+  document.getElementById('ogretHatirlatma').value = '10. gün ilk hatırlatma';
+  document.getElementById('ogretFormErr').style.display = 'none';
+  ogretKategoriDegisti();
+  document.getElementById('ogretModal').style.display = 'flex';
+}
+
+function closeOgretModal(){
+  document.getElementById('ogretModal').style.display = 'none';
+}
+
+function ogretKategoriDegisti(){
+  var kat = document.getElementById('ogretKategori').value;
+  document.getElementById('ogretRakipFields').style.display = (kat === 'rakip') ? 'block' : 'none';
+  document.getElementById('ogretKVFields').style.display = (kat === 'karar_verici_kalibi') ? 'block' : 'none';
+  document.getElementById('ogretNumuneFields').style.display = (kat === 'numune_suresi') ? 'block' : 'none';
+  // Anahtar etiketi değişsin
+  var lbl = document.getElementById('ogretAnahtarLbl');
+  if(kat === 'rakip') lbl.textContent = 'Marka adı *';
+  else if(kat === 'karar_verici_kalibi') lbl.textContent = 'Rol kodu * (örn: kullanici, etkileyici)';
+  else if(kat === 'numune_suresi') lbl.textContent = 'Ürün tipi *';
+}
+
+function ogretKaydet(){
+  var kat = document.getElementById('ogretKategori').value;
+  var anahtar = document.getElementById('ogretAnahtar').value.trim();
+  var err = document.getElementById('ogretFormErr');
+  err.style.display = 'none';
+  if(!anahtar){
+    err.textContent = 'Anahtar alanı zorunlu';
+    err.style.display = 'block';
+    return;
+  }
+  var deger, notlar;
+  if(kat === 'rakip'){
+    deger = document.getElementById('ogretSegment').value;
+    notlar = document.getElementById('ogretUrunler').value.trim();
+  } else if(kat === 'karar_verici_kalibi'){
+    var unvanlar = document.getElementById('ogretUnvanlar').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+    var aksiyon = document.getElementById('ogretAksiyon').value.trim();
+    if(unvanlar.length === 0){
+      err.textContent = 'En az bir ünvan girilmeli';
+      err.style.display = 'block';
+      return;
+    }
+    deger = JSON.stringify({unvanlar: unvanlar, aksiyon: aksiyon});
+    notlar = document.getElementById('ogretAnahtar').value.toUpperCase();
+  } else if(kat === 'numune_suresi'){
+    deger = document.getElementById('ogretSure').value.trim();
+    notlar = document.getElementById('ogretHatirlatma').value.trim();
+  }
+  fetch(API+'/api/llm/knowledge', {
+    method:'POST',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body: JSON.stringify({
+      kategori: kat,
+      anahtar: anahtar,
+      deger: deger,
+      notlar: notlar
+    })
+  })
+  .then(function(r){return r.json();})
+  .then(function(res){
+    if(res.success){
+      showToast('📚 Bilgi dosyasına eklendi: ' + anahtar);
+      closeOgretModal();
+    } else {
+      err.textContent = res.error || 'Bilinmeyen hata';
+      err.style.display = 'block';
+    }
+  })
+  .catch(function(e){
+    err.textContent = 'Hata: ' + e.message;
+    err.style.display = 'block';
+  });
 }
 
 // ===== FILE UPLOAD =====
