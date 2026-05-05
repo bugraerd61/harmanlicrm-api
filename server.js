@@ -100,6 +100,7 @@ async function initDB() {
   )`);
   await pool.query("ALTER TABLE llm_oneriler ALTER COLUMN kalite_skoru TYPE VARCHAR(10)");
   await pool.query("ALTER TABLE llm_oneriler ALTER COLUMN sistem TYPE VARCHAR(5)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS uniq_lo_aktivite_no ON llm_oneriler(aktivite_no)");
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_durum ON llm_oneriler(durum, olusturma_tarihi DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_card ON llm_oneriler(card_code)');
 
@@ -493,13 +494,28 @@ app.post('/api/llm/oneri', n8nAuth, function(req, res) {
               ' sistem=' + b.sistem +
               ' sicaklik=' + b.sicaklik_etiketi +
               ' asama=' + b.asama);
-  pool.query(
+pool.query(
     `INSERT INTO llm_oneriler (
       aktivite_no, card_code, musteri, sistem, temsilci, aktivite_tarihi,
       llm_yorum, sicaklik_etiketi, asama, kalite_skoru, sonuc_onerisi, sap_sonuc, cakisma,
       onerilen_aksiyonlar
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-    RETURNING id`,
+    ON CONFLICT (aktivite_no) DO UPDATE SET
+      card_code = EXCLUDED.card_code,
+      musteri = EXCLUDED.musteri,
+      sistem = EXCLUDED.sistem,
+      temsilci = EXCLUDED.temsilci,
+      aktivite_tarihi = EXCLUDED.aktivite_tarihi,
+      llm_yorum = EXCLUDED.llm_yorum,
+      sicaklik_etiketi = EXCLUDED.sicaklik_etiketi,
+      asama = EXCLUDED.asama,
+      kalite_skoru = EXCLUDED.kalite_skoru,
+      sonuc_onerisi = EXCLUDED.sonuc_onerisi,
+      sap_sonuc = EXCLUDED.sap_sonuc,
+      cakisma = EXCLUDED.cakisma,
+      onerilen_aksiyonlar = EXCLUDED.onerilen_aksiyonlar
+    WHERE llm_oneriler.durum = 'pending'
+    RETURNING id, (xmax = 0) AS yeni_kayit`,
     [
       b.aktivite_no, b.card_code, b.musteri,
       (b.sistem || '').toString().substring(0,1) || null,
@@ -509,8 +525,16 @@ app.post('/api/llm/oneri', n8nAuth, function(req, res) {
       JSON.stringify(b.onerilen_aksiyonlar || [])
     ]
   ).then(function(r) {
-    console.log('[llm/oneri] OK id=' + r.rows[0].id + ' aktivite_no=' + b.aktivite_no);
-    res.json({ id: r.rows[0].id, success: true });
+    if (!r.rows[0]) {
+      console.log('[llm/oneri] ATLANDI (zaten karar verilmiş): aktivite_no=' + b.aktivite_no);
+      res.json({ success: true, skipped: true, reason: 'already_decided' });
+    } else if (r.rows[0].yeni_kayit) {
+      console.log('[llm/oneri] YENİ id=' + r.rows[0].id + ' aktivite_no=' + b.aktivite_no);
+      res.json({ id: r.rows[0].id, success: true, action: 'inserted' });
+    } else {
+      console.log('[llm/oneri] GÜNCELLENDİ id=' + r.rows[0].id + ' aktivite_no=' + b.aktivite_no);
+      res.json({ id: r.rows[0].id, success: true, action: 'updated' });
+    }
   }).catch(function(err) {
     console.error('[llm/oneri] HATA: ' + err.message + ' | aktivite_no=' + b.aktivite_no + ' kalite=' + b.kalite_skoru + ' card=' + b.card_code);
     res.status(500).json({ error: err.message });
