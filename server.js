@@ -119,6 +119,20 @@ async function initDB() {
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lcl_tarih ON llm_cost_log(tarih DESC)');
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS llm_mail_tokens (
+    id SERIAL PRIMARY KEY,
+    oneri_id INTEGER REFERENCES llm_oneriler(id) ON DELETE CASCADE,
+    token VARCHAR(64) UNIQUE NOT NULL,
+    olusturma_tarihi TIMESTAMP DEFAULT NOW(),
+    gecerli_end_t TIMESTAMP NOT NULL,
+    kullanildi_mi BOOLEAN DEFAULT FALSE,
+    kullanilma_tarihi TIMESTAMP,
+    kullanilan_email VARCHAR(255),
+    kullanilan_ip VARCHAR(50)
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lmt_token ON llm_mail_tokens(token) WHERE kullanildi_mi=FALSE');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lmt_oneri ON llm_mail_tokens(oneri_id)');
+
   await pool.query("DELETE FROM llm_company_knowledge WHERE kategori = 'eski_temsilci'");
   await pool.query("DELETE FROM llm_company_knowledge WHERE kategori = 'numune_suresi' AND anahtar != 'genel'");
 
@@ -633,6 +647,123 @@ app.post('/api/llm/knowledge', auth, adminOnly, function(req, res) {
     res.status(500).json({ error: err.message });
   });
 });
+
+// ── MAIL TOKEN ENDPOINTS — Mail butonları için ──────────────────────
+
+// n8n çağrılır — toplu öneri için tokenlar üret
+app.post('/api/llm/mail-tokens', n8nAuth, function(req, res) {
+  var crypto = require('crypto');
+  var oneri_ids = req.body.oneri_ids;
+  var saat_gecerli = req.body.saat_gecerli || 24;
+  if (!Array.isArray(oneri_ids) || oneri_ids.length === 0) {
+    return res.status(400).json({ error: 'oneri_ids array gerekli' });
+  }
+  var tokenList = oneri_ids.map(function(id) {
+    return { oneri_id: id, token: crypto.randomBytes(24).toString('hex') };
+  });
+  var values = tokenList.map(function(t, i) {
+    return '($' + (i*3+1) + ', $' + (i*3+2) + ', $' + (i*3+3) + ')';
+  }).join(',');
+  var params = [];
+  tokenList.forEach(function(t) {
+    params.push(t.oneri_id, t.token, "NOW() + INTERVAL '" + saat_gecerli + " hours'");
+  });
+  // Ayrı sorgu olarak — interval string olduğu için
+  var sql = 'INSERT INTO llm_mail_tokens (oneri_id, token, gecerli_end_t) VALUES ';
+  sql += tokenList.map(function(t, i) {
+    return '($' + (i*2+1) + ', $' + (i*2+2) + ", NOW() + INTERVAL '" + saat_gecerli + " hours')";
+  }).join(',');
+  sql += ' RETURNING oneri_id, token';
+  var p2 = [];
+  tokenList.forEach(function(t) { p2.push(t.oneri_id, t.token); });
+  pool.query(sql, p2)
+    .then(function(r) { res.json({ success: true, tokens: r.rows }); })
+    .catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+// Mail buton — Onayla (token doğrula, anında onay, HTML cevap)
+app.get('/llm-onay/approve', function(req, res) {
+  var id = parseInt(req.query.id);
+  var token = req.query.token;
+  if (!id || !token) return res.status(400).send(htmlSayfa('❌ Geçersiz Bağlantı', 'Bağlantıda eksik bilgi var.', false));
+
+  pool.query(
+    `SELECT t.id AS token_id, t.kullanildi_mi, t.gecerli_end_t < NOW() AS expired,
+            o.id AS oneri_id, o.musteri, o.durum
+     FROM llm_mail_tokens t
+     JOIN llm_oneriler o ON t.oneri_id = o.id
+     WHERE t.token = $1 AND t.oneri_id = $2`,
+    [token, id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).send(htmlSayfa('❌ Bağlantı Geçersiz', 'Bu bağlantı bulunamadı veya hatalı.', false));
+    var rec = r.rows[0];
+    if (rec.kullanildi_mi) return res.send(htmlSayfa('ℹ️ Zaten İşlenmiş', rec.musteri + ' önerisi zaten işlenmiş.', true));
+    if (rec.expired) return res.status(410).send(htmlSayfa('⏰ Süresi Doldu', 'Bu bağlantının süresi dolmuş (24 saat). Site üzerinden onaylayabilirsiniz.', false));
+    if (rec.durum !== 'pending') return res.send(htmlSayfa('ℹ️ Zaten İşlenmiş', rec.musteri + ' önerisi durum: ' + rec.durum, true));
+
+    // Onayla + token harca
+    pool.query(
+      `UPDATE llm_oneriler SET durum='approved', onaylayan_email='mail-buton', onay_tarihi=NOW() WHERE id=$1`,
+      [id]
+    ).then(function() {
+      return pool.query(
+        `UPDATE llm_mail_tokens SET kullanildi_mi=TRUE, kullanilma_tarihi=NOW(), kullanilan_ip=$1 WHERE id=$2`,
+        [req.ip, rec.token_id]
+      );
+    }).then(function() {
+      res.send(htmlSayfa('✅ Onaylandı', rec.musteri + ' önerisi başarıyla onaylandı.', true));
+    }).catch(function(err) {
+      res.status(500).send(htmlSayfa('❌ Hata', err.message, false));
+    });
+  }).catch(function(err) {
+    res.status(500).send(htmlSayfa('❌ Hata', err.message, false));
+  });
+});
+
+// Mail buton — Reddet/Düzelt/Öğret → harmanlicrm.com'a yönlendir (token kullanılmadı, modal'da işlenecek)
+app.get('/llm-onay/dispatch', function(req, res) {
+  var id = parseInt(req.query.id);
+  var action = req.query.action; // reject | duzelt | ogret
+  var token = req.query.token;
+  if (!id || !token || !action) return res.status(400).send(htmlSayfa('❌ Geçersiz', 'Eksik parametre', false));
+
+  // Token doğrulama (kullanma yok, sadece geçerli mi diye bakıyoruz)
+  pool.query(
+    `SELECT t.id, t.kullanildi_mi, t.gecerli_end_t < NOW() AS expired
+     FROM llm_mail_tokens t WHERE t.token=$1 AND t.oneri_id=$2`,
+    [token, id]
+  ).then(function(r) {
+    if (!r.rows[0]) return res.status(404).send(htmlSayfa('❌ Geçersiz', 'Bağlantı bulunamadı', false));
+    if (r.rows[0].expired) return res.status(410).send(htmlSayfa('⏰ Süresi Doldu', 'Süresi dolmuş, sitede manuel yapın', false));
+    // Token doğru, harmanlicrm.com'a redirect
+    res.redirect('/?focus=' + id + '&action=' + encodeURIComponent(action));
+  }).catch(function(err) {
+    res.status(500).send(htmlSayfa('❌ Hata', err.message, false));
+  });
+});
+
+// HTML şablonu
+function htmlSayfa(baslik, mesaj, basarili) {
+  var renk = basarili ? '#10B981' : '#EF4444';
+  return `<!DOCTYPE html><html lang="tr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${baslik} | HarmanlıCRM</title>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F8FAFC;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.box{background:#fff;border-radius:14px;padding:36px 30px;box-shadow:0 4px 20px rgba(0,0,0,.08);max-width:440px;width:90%;text-align:center;border-top:5px solid ${renk}}
+h1{margin:0 0 14px;font-size:26px;color:#1E3A8A}
+p{margin:0 0 24px;color:#475569;font-size:15px;line-height:1.5}
+a{display:inline-block;background:#1E3A8A;color:#fff;padding:11px 26px;border-radius:7px;text-decoration:none;font-weight:600;font-size:14px}
+a:hover{background:#1E40AF}
+.foot{margin-top:18px;font-size:12px;color:#94A3B8}
+</style></head><body>
+<div class="box">
+<h1>${baslik}</h1>
+<p>${mesaj}</p>
+<a href="/?tab=llmonaylar">LLM Onaylar Sayfasına Git →</a>
+<div class="foot">HarmanlıCRM — LLM Aktivite Sistemi</div>
+</div></body></html>`;
+}
 
 // ── SPA CATCH-ALL — EN SONDA OLMALI ──────────────────────────────────
 app.get('*', function(req, res) {
