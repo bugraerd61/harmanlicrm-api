@@ -98,6 +98,8 @@ async function initDB() {
     red_sebebi TEXT,
     olusturma_tarihi TIMESTAMP DEFAULT NOW()
   )`);
+  await pool.query("ALTER TABLE llm_oneriler ALTER COLUMN kalite_skoru TYPE VARCHAR(10)");
+  await pool.query("ALTER TABLE llm_oneriler ALTER COLUMN sistem TYPE VARCHAR(5)");
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_durum ON llm_oneriler(durum, olusturma_tarihi DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lo_card ON llm_oneriler(card_code)');
 
@@ -485,6 +487,12 @@ app.get('/api/llm/knowledge', n8nAuth, function(req, res) {
 
 app.post('/api/llm/oneri', n8nAuth, function(req, res) {
   var b = req.body;
+  console.log('[llm/oneri] geldi: aktivite_no=' + b.aktivite_no +
+              ' musteri=' + (b.musteri || '').substring(0,40) +
+              ' kalite=' + b.kalite_skoru +
+              ' sistem=' + b.sistem +
+              ' sicaklik=' + b.sicaklik_etiketi +
+              ' asama=' + b.asama);
   pool.query(
     `INSERT INTO llm_oneriler (
       aktivite_no, card_code, musteri, sistem, temsilci, aktivite_tarihi,
@@ -493,14 +501,18 @@ app.post('/api/llm/oneri', n8nAuth, function(req, res) {
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
     RETURNING id`,
     [
-      b.aktivite_no, b.card_code, b.musteri, b.sistem || null, b.temsilci, b.aktivite_tarihi,
+      b.aktivite_no, b.card_code, b.musteri,
+      (b.sistem || '').toString().substring(0,1) || null,
+      b.temsilci, b.aktivite_tarihi,
       JSON.stringify(b.llm_yorum || {}),
       b.sicaklik_etiketi, b.asama, b.kalite_skoru, b.sonuc_onerisi, b.sap_sonuc, b.cakisma || false,
       JSON.stringify(b.onerilen_aksiyonlar || [])
     ]
   ).then(function(r) {
+    console.log('[llm/oneri] OK id=' + r.rows[0].id + ' aktivite_no=' + b.aktivite_no);
     res.json({ id: r.rows[0].id, success: true });
   }).catch(function(err) {
+    console.error('[llm/oneri] HATA: ' + err.message + ' | aktivite_no=' + b.aktivite_no + ' kalite=' + b.kalite_skoru + ' card=' + b.card_code);
     res.status(500).json({ error: err.message });
   });
 });
