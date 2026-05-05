@@ -541,6 +541,44 @@ pool.query(
   });
 });
 
+// ── FAZ 2: LLM FEEDBACK ENDPOINT — geçmiş düzeltmeler/redler/onaylar ──
+app.get('/api/llm/feedback', n8nAuth, function(req, res) {
+  pool.query(
+    `SELECT 
+      id, musteri, asama, sicaklik_etiketi, kalite_skoru, sonuc_onerisi, sap_sonuc,
+      onerilen_aksiyonlar, duzelten_metin, red_sebebi, durum, olusturma_tarihi
+     FROM llm_oneriler
+     WHERE (
+       (durum = 'rejected' AND red_sebebi IS NOT NULL AND LENGTH(red_sebebi) > 5) OR 
+       (durum = 'approved' AND duzelten_metin IS NOT NULL AND LENGTH(duzelten_metin) > 5)
+     )
+     AND olusturma_tarihi >= NOW() - INTERVAL '30 days'
+     ORDER BY olusturma_tarihi DESC
+     LIMIT 50`
+  ).then(function(red_duz) {
+    return pool.query(
+      `SELECT id, musteri, asama, sicaklik_etiketi, sonuc_onerisi, onerilen_aksiyonlar
+       FROM llm_oneriler
+       WHERE durum = 'approved' 
+         AND duzelten_metin IS NULL
+         AND olusturma_tarihi >= NOW() - INTERVAL '30 days'
+       ORDER BY olusturma_tarihi DESC
+       LIMIT 20`
+    ).then(function(onaylar) {
+      console.log('[llm/feedback] ' + red_duz.rows.length + ' düzeltme/red + ' + onaylar.rows.length + ' onay verildi');
+      res.json({
+        success: true,
+        duzeltmeler_redler: red_duz.rows,
+        olumlu_ornekler: onaylar.rows,
+        toplam: red_duz.rows.length + onaylar.rows.length
+      });
+    });
+  }).catch(function(err) {
+    console.error('[llm/feedback] HATA: ' + err.message);
+    res.status(500).json({ error: err.message });
+  });
+});
+
 app.post('/api/llm/cost', n8nAuth, function(req, res) {
   var b = req.body;
   pool.query(
