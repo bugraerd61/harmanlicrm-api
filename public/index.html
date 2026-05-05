@@ -945,6 +945,87 @@ function showApp(){
   loadDBList();
   // Otomatik son veriyi yükle
   autoLoadLatest();
+  // URL parametrelerini kontrol et — mailden geldiyse direkt ilgili sayfaya
+  handleUrlParams();
+}
+
+// Mailden gelen URL parametrelerini işle: ?tab=llmonaylar&focus=ID&action=reject|duzelt|ogret
+function handleUrlParams(){
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  var focus = params.get('focus');
+  var action = params.get('action');
+
+  // LLM Onaylar tabını aç
+  if(tab === 'llmonaylar' || focus){
+    if(currentUser && currentUser.role === 'admin'){
+      sw('llmonaylar');
+    } else {
+      // Admin değilse uyarı göster
+      setTimeout(function(){ alert('Bu sayfaya erişim için admin yetkisi gerekli.'); }, 200);
+      return;
+    }
+  }
+
+  // Belirli bir kartı odakla + modal aç
+  if(focus){
+    var oneri_id = parseInt(focus);
+    // LLM Onaylar verileri yüklendikten sonra çalışacak
+    var checkInterval = setInterval(function(){
+      if(LLM_ONERILER_CACHE && LLM_ONERILER_CACHE.length > 0){
+        clearInterval(checkInterval);
+        focusLLMOneri(oneri_id, action);
+      }
+    }, 200);
+    // 10 saniye sonra hâlâ yüklenmediyse vazgeç
+    setTimeout(function(){ clearInterval(checkInterval); }, 10000);
+  }
+
+  // URL'i temizle (kullanıcı yenileyince modal tekrar açılmasın)
+  if(tab || focus || action){
+    var cleanUrl = window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+  }
+}
+
+function focusLLMOneri(oneri_id, action){
+  // Karta scroll yap, highlight ekle, ilgili modalı aç
+  var oneri = LLM_ONERILER_CACHE.find(function(r){ return r.id === oneri_id; });
+  if(!oneri){
+    showToast('⚠️ Öneri bulunamadı (ID ' + oneri_id + ')');
+    return;
+  }
+  // Filtreyi temizle ki kart görünsün
+  document.getElementById('llmOFilterDurum').value = '';
+  document.getElementById('llmOFilterSicaklik').value = '';
+  renderLLMOneriler();
+
+  // Karta scroll
+  setTimeout(function(){
+    var cards = document.querySelectorAll('#llmOList > div');
+    cards.forEach(function(card){
+      var idMatch = card.innerHTML.match(/onclick="llmO\w+\((\d+)\)/);
+      if(idMatch && parseInt(idMatch[1]) === oneri_id){
+        card.scrollIntoView({behavior:'smooth', block:'center'});
+        // Sarı highlight 3 saniye
+        var origBorder = card.style.border;
+        var origBoxShadow = card.style.boxShadow;
+        card.style.border = '2px solid #F59E0B';
+        card.style.boxShadow = '0 0 0 4px rgba(245,158,11,.2)';
+        setTimeout(function(){
+          card.style.border = origBorder;
+          card.style.boxShadow = origBoxShadow;
+        }, 3000);
+      }
+    });
+
+    // Action'a göre modal aç
+    setTimeout(function(){
+      if(action === 'reject') llmOReddet(oneri_id);
+      else if(action === 'duzelt') llmODuzelt(oneri_id);
+      else if(action === 'ogret') llmOOgret(oneri_id);
+    }, 800);
+  }, 300);
 }
 
 function saveApiKey(){
