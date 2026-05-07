@@ -839,6 +839,63 @@ a:hover{background:#1E40AF}
 </div></body></html>`;
 }
 
+// ── TAKVİM ENDPOINT'i (mail butonu için, .ics dosyası üretir) ──
+app.get('/llm-takvim', function(req, res) {
+  var subject = req.query.subject || 'Hatırlatma';
+  var startdt = req.query.startdt;
+  var enddt = req.query.enddt;
+  var body = req.query.body || '';
+  var location = req.query.location || '';
+
+  if (!startdt || !enddt) {
+    return res.status(400).send('startdt ve enddt gerekli');
+  }
+
+  // ISO format (2026-05-17T09:00:00) → ICS format (20260517T090000)
+  var startICS = startdt.replace(/[-:]/g, '').substring(0, 15);
+  var endICS = enddt.replace(/[-:]/g, '').substring(0, 15);
+
+  var now = new Date();
+  var dtstamp = now.toISOString().replace(/[-:]/g, '').substring(0, 15) + 'Z';
+  var uid = 'llm-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9) + '@harmanlicrm.com';
+
+  function icsEscape(s) {
+    return String(s)
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '');
+  }
+
+  var ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//HarmanliCRM//LLM Activity//TR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    'UID:' + uid,
+    'DTSTAMP:' + dtstamp,
+    'DTSTART:' + startICS,
+    'DTEND:' + endICS,
+    'SUMMARY:' + icsEscape(subject),
+    'DESCRIPTION:' + icsEscape(body),
+    'LOCATION:' + icsEscape(location),
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:Hatırlatma',
+    'TRIGGER:-PT15M',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="hatirlatma.ics"');
+  res.send(ics);
+});
+
 // ── SPA CATCH-ALL — EN SONDA OLMALI ──────────────────────────────────
 app.get('*', function(req, res) {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
